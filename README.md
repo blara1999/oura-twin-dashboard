@@ -68,7 +68,7 @@ This app is designed to run securely on Streamlit Cloud using **Secrets** for cr
 
 ```toml
 [passwords]
-dr_patryjca = "YourSecurePasswordHere"
+authorized_user = "YourSecurePasswordHere"
 
 [oura]
 client_id = "your_oura_client_id"
@@ -79,7 +79,7 @@ redirect_uri = "https://<your-app-url>.streamlit.app"
 > **Important:** The `redirect_uri` in Secrets MUST match exactly what is in the Oura Developer Portal.
 
 ### 3. Accessing the Dashboard
-- **Login**: Use the username (`dr_patryjca`) and password defined in secrets.
+- **Login**: Use the username (`authorized_user`) and password defined in secrets.
 - **Connect**: Click "Connect Twin A" and "Connect Twin B" in the sidebar to authorize Oura access.
 
 ## Project Structure
