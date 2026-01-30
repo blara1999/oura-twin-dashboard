@@ -1746,46 +1746,45 @@ def render_sidebar():
                 if saved_creds.get('client_id'):
                     st.caption("Credentials saved")
             
-            st.divider()
-            
-            # Twin A Connection
-            st.markdown("**Twin A**")
-            if is_token_valid('twin_a'):
-                st.success("Connected")
-                if st.button("Disconnect", key="disconnect_a", use_container_width=True):
-                    st.session_state.twin_a_token = None
-                    st.session_state.twin_a_refresh_token = None
-                    remove_twin_tokens('twin_a')
-                    st.rerun()
+        st.divider()
+        
+        # Twin A Connection
+        st.markdown("**Twin A**")
+        if is_token_valid('twin_a'):
+            st.success("Connected")
+            if st.button("Disconnect", key="disconnect_a", use_container_width=True):
+                st.session_state.twin_a_token = None
+                st.session_state.twin_a_refresh_token = None
+                remove_twin_tokens('twin_a')
+                st.rerun()
+        else:
+            st.error("Not Connected")
+            # Ensure we have credentials before showing connect button
+            if saved_creds.get('client_id') and saved_creds.get('client_secret'):
+                auth_url = get_authorization_url('twin_a')
+                st.link_button("Connect Twin A", auth_url, use_container_width=True)
             else:
-                st.error("Not Connected")
-                saved_creds = load_credentials()
-                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
-                    auth_url = get_authorization_url('twin_a')
-                    st.link_button("Connect Twin A", auth_url, use_container_width=True)
-                else:
-                    st.caption("Save credentials first")
-            
-            st.divider()
-            
-            # Twin B Connection
-            st.markdown("**Twin B**")
-            if is_token_valid('twin_b'):
-                st.success("Connected")
-                if st.button("Disconnect", key="disconnect_b", use_container_width=True):
-                    st.session_state.twin_b_token = None
-                    st.session_state.twin_b_refresh_token = None
-                    remove_twin_tokens('twin_b')
-                    st.rerun()
+                st.caption("Save credentials first")
+        
+        st.divider()
+        
+        # Twin B Connection
+        st.markdown("**Twin B**")
+        if is_token_valid('twin_b'):
+            st.success("Connected")
+            if st.button("Disconnect", key="disconnect_b", use_container_width=True):
+                st.session_state.twin_b_token = None
+                st.session_state.twin_b_refresh_token = None
+                remove_twin_tokens('twin_b')
+                st.rerun()
+        else:
+            st.error("Not Connected")
+            if saved_creds.get('client_id') and saved_creds.get('client_secret'):
+                auth_url = get_authorization_url('twin_b')
+                st.link_button("Connect Twin B", auth_url, use_container_width=True)
+                st.caption("Will prompt for fresh login")
             else:
-                st.error("Not Connected")
-                saved_creds = load_credentials()
-                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
-                    auth_url = get_authorization_url('twin_b')
-                    st.link_button("Connect Twin B", auth_url, use_container_width=True)
-                    st.caption("Will prompt for fresh login")
-                else:
-                    st.caption("Save credentials first")
+                st.caption("Save credentials first")
         
         st.divider()
         
