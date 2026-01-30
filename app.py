@@ -50,46 +50,22 @@ def check_password() -> bool:
     if not is_running_on_cloud():
         return True
     
-    def password_entered():
-        """Checks whether username/password is correct."""
-        try:
-            if (
-                st.session_state.get("username") in st.secrets["passwords"]
-                and st.session_state.get("password") == st.secrets["passwords"][st.session_state["username"]]
-            ):
-                st.session_state["authenticated"] = True
-                st.session_state["current_user"] = st.session_state["username"]
-                # Clear password from session state for security
-                del st.session_state["password"]
-            else:
-                st.session_state["authenticated"] = False
-        except Exception:
-            st.session_state["authenticated"] = False
-
     # Return True if already authenticated
     if st.session_state.get("authenticated", False):
         return True
 
-    # Show login form
+    # Show login form using st.form for stable state management
     st.markdown("""
     <style>
-    .login-container {
-        max-width: 400px;
-        margin: 100px auto;
-        padding: 40px;
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border-radius: 16px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-    }
     .login-title {
         text-align: center;
-        color: #f8fafc;
+        color: #1e293b;
         font-size: 1.8rem;
         margin-bottom: 8px;
     }
     .login-subtitle {
         text-align: center;
-        color: #94a3b8;
+        color: #64748b;
         font-size: 0.9rem;
         margin-bottom: 24px;
     }
@@ -99,12 +75,22 @@ def check_password() -> bool:
     st.markdown('<div class="login-title">🔬 Twin Physiology Monitor</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-subtitle">High-Altitude Expedition Dashboard</div>', unsafe_allow_html=True)
     
-    st.text_input("Username", key="username")
-    st.text_input("Password", type="password", key="password")
-    st.button("Log in", on_click=password_entered, type="primary", use_container_width=True)
-    
-    if st.session_state.get("authenticated") == False:
-        st.error("😕 Invalid username or password")
+    # Use a form to prevent multiple submission issues
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
+        
+        if submitted:
+            try:
+                if username in st.secrets["passwords"] and password == st.secrets["passwords"][username]:
+                    st.session_state["authenticated"] = True
+                    st.session_state["current_user"] = username
+                    st.rerun()
+                else:
+                    st.error("😕 Invalid username or password")
+            except Exception:
+                st.error("😕 Authentication error")
     
     return False
 
@@ -1716,22 +1702,14 @@ def render_sidebar():
         
         st.divider()
         
-        # Mock Data Toggle
-        st.markdown("**Data Source**")
-        use_mock = st.toggle(
-            "Use Mock Data",
-            value=st.session_state.use_mock_data,
-            help="Toggle to use simulated data for testing"
-        )
-        st.session_state.use_mock_data = use_mock
+        # OAuth Configuration
+        st.markdown("**API Credentials**")
         
-        if use_mock:
-            st.caption("Using simulated data")
+        # Load saved credentials
+        saved_creds = load_credentials()
         
-        st.divider()
-        
-        # OAuth Configuration (only shown when not using mock data)
-        if not use_mock:
+        # Only show config if credentials not loaded from secrets
+        if not (hasattr(st, 'secrets') and 'oura' in st.secrets):
             st.markdown("**API Credentials**")
             
             # Load saved credentials
@@ -1866,17 +1844,12 @@ def render_main_content():
     # Get data
     start_date, end_date = st.session_state.date_range
     
-    if st.session_state.use_mock_data:
-        # Use mock data
-        raw_data_a = generate_mock_data(start_date, end_date, 'twin_a')
-        raw_data_b = generate_mock_data(start_date, end_date, 'twin_b')
-    else:
-        # Fetch real data
-        twin_a_connected = is_token_valid('twin_a')
-        twin_b_connected = is_token_valid('twin_b')
-        
-        raw_data_a = fetch_all_twin_data('twin_a', start_date, end_date) if twin_a_connected else {}
-        raw_data_b = fetch_all_twin_data('twin_b', start_date, end_date) if twin_b_connected else {}
+    # Fetch real data
+    twin_a_connected = is_token_valid('twin_a')
+    twin_b_connected = is_token_valid('twin_b')
+    
+    raw_data_a = fetch_all_twin_data('twin_a', start_date, end_date) if twin_a_connected else {}
+    raw_data_b = fetch_all_twin_data('twin_b', start_date, end_date) if twin_b_connected else {}
     
     # Process data
     df_a = process_twin_data(raw_data_a)
@@ -1885,53 +1858,6 @@ def render_main_content():
     # Get latest metrics
     metrics_a = get_latest_metrics(df_a)
     metrics_b = get_latest_metrics(df_b)
-    
-    # ==========================================================================
-    # API DEBUG SECTION (temporary - helps troubleshoot data issues)
-    # ==========================================================================
-    if not st.session_state.use_mock_data:
-        with st.expander("🔧 API Debug Info", expanded=False):
-            st.write("**Raw API Response Summary:**")
-            
-            col_dbg1, col_dbg2 = st.columns(2)
-            
-            with col_dbg1:
-                st.write("**Twin A:**")
-                if raw_data_a:
-                    spo2_data_a = raw_data_a.get('daily_spo2', [])
-                    sleep_data_a = raw_data_a.get('sleep', [])
-                    st.write(f"- SpO2 endpoint records: {len(spo2_data_a) if spo2_data_a else 0}")
-                    if spo2_data_a and len(spo2_data_a) > 0:
-                        st.write(f"- SpO2 record keys: {list(spo2_data_a[0].keys())}")
-                        st.json(spo2_data_a[0])
-                    else:
-                        st.warning("No SpO2 from daily_spo2 endpoint")
-                    
-                    st.write(f"- Sleep records: {len(sleep_data_a) if sleep_data_a else 0}")
-                    if sleep_data_a and len(sleep_data_a) > 0:
-                        st.write(f"- Sleep record keys: {list(sleep_data_a[0].keys())}")
-                        # Show sample with potential SpO2 fields
-                        sample = {k: v for k, v in sleep_data_a[0].items() 
-                                  if 'spo2' in k.lower() or 'oxygen' in k.lower() or k in ['day', 'id']}
-                        if sample:
-                            st.json(sample)
-                else:
-                    st.error("No raw data - Twin A not connected?")
-            
-            with col_dbg2:
-                st.write("**Twin B:**")
-                if raw_data_b:
-                    spo2_data_b = raw_data_b.get('daily_spo2', [])
-                    st.write(f"- SpO2 records: {len(spo2_data_b) if spo2_data_b else 0}")
-                    if spo2_data_b and len(spo2_data_b) > 0:
-                        st.write(f"- First record keys: {list(spo2_data_b[0].keys())}")
-                        st.json(spo2_data_b[0])
-                    else:
-                        st.warning("No SpO2 data returned. Check OAuth scopes.")
-                    
-                    st.write(f"- Sleep records: {len(raw_data_b.get('sleep', []) or [])}")
-                else:
-                    st.error("No raw data - Twin B not connected?")
     
     # ==========================================================================
     # STATUS SECTION - Compact
