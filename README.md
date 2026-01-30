@@ -4,10 +4,10 @@ A Streamlit-based monitoring dashboard for tracking biometric data from identica
 
 ## Features
 
-- **OAuth2 Authorization Code Flow**: Secure authentication for two separate Oura accounts (Twin A and Twin B)
+- **Secure Authentication**: Password-protected access (username/password)
+- **OAuth2 Authorization**: Secure connection for two separate Oura accounts (Twin A and Twin B)
 - **Real-time Monitoring**: Near real-time display of critical altitude physiology metrics
 - **Comparative Visualization**: Side-by-side comparison charts with Twin A (Blue) and Twin B (Red)
-- **Mock Data Mode**: Built-in realistic simulated data for testing without API credentials
 - **Doctor's Heads-Up Display**: Big, bold KPI metrics for quick assessment
 - **Critical Alerts**: Visual warnings when SpO2 drops below 90%
 
@@ -15,20 +15,22 @@ A Streamlit-based monitoring dashboard for tracking biometric data from identica
 
 | Metric | Endpoint | Clinical Significance |
 |--------|----------|----------------------|
-| **SpO2 %** | `/v2/usercollection/daily_spo2` | Critical for altitude acclimatization |
-| **Resting Heart Rate** | `/v2/usercollection/sleep` | Indicates cardiovascular stress |
-| **HRV** | `/v2/usercollection/sleep` | Stress and recovery indicator |
-| **Respiratory Rate** | `/v2/usercollection/sleep` | Hypoxic Ventilatory Response proxy |
-| **Sleep Score** | `/v2/usercollection/daily_sleep` | Overall sleep quality |
-| **Cardiovascular Age** | `/v2/usercollection/daily_cardiovascular_age` | Vascular health (Gen 4 feature) |
+| **SpO2 %** | `/v2/usercollection/daily_spo2` | Critical for altitude acclimatization, requires Gen 3/4 ring |
+| **Resting Heart Rate** | `/v2/usercollection/sleep` | Indicates cardiovascular stress and adaptation |
+| **HRV** | `/v2/usercollection/sleep` | Key indicator of autonomic nervous system balance (stress/recovery) |
+| **Respiratory Rate** | `/v2/usercollection/sleep` | Proxy for Hypoxic Ventilatory Response (HVR) |
+| **Sleep Score** | `/v2/usercollection/daily_sleep` | Overall recovery and sleep quality |
 
-## Quick Start
+> **Note on SpO2:** SpO2 data is critical for this high-altitude study. Ensure `spo2` scope is enabled and users have SpO2 tracking enabled in their Oura app.
+
+## Quick Start (Local Development)
 
 ### 1. Installation
 
 ```bash
-# Clone or download the repository
-cd oura_dashboard
+# Clone the repository
+git clone https://github.com/blara1999/oura-twin-dashboard.git
+cd oura-twin-dashboard
 
 # Create virtual environment (recommended)
 python -m venv venv
@@ -38,163 +40,75 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Run with Mock Data (No API Required)
+### 2. Configure Credentials
+
+Create a `.oura_twin_dashboard_config.json` file in your home directory OR launch the app and enter credentials in the sidebar.
+
+### 3. Run the App
 
 ```bash
 streamlit run app.py
 ```
 
-The dashboard will open in your browser. The "Use Mock Data" toggle is enabled by default, allowing you to explore the full functionality immediately.
+## Streamlit Cloud Deployment (Production)
 
-### 3. Configure for Real Data
+This app is designed to run securely on Streamlit Cloud using **Secrets** for credentials management.
 
-#### A. Register an Oura API Application
-
+### 1. Register Oura Application
 1. Go to [Oura Cloud Developer Portal](https://cloud.ouraring.com/oauth/applications)
-2. Click "Create Application"
-3. Fill in the application details:
+2. Create an App with these settings:
    - **Name**: Twin Physiology Monitor
-   - **Redirect URI**: `http://localhost:8501` (or your deployment URL)
-   - **Scopes**: Select `email`, `personal`, `daily`, `heartrate`, `spo2Daily`
-4. Save your **Client ID** and **Client Secret**
+   - **Redirect URI**: `https://<your-app-url>.streamlit.app` (Exact match required!)
+   - **Scopes**: `email` `personal` `daily` `heartrate` `spo2`
 
-#### B. Configure the Dashboard
+### 2. Deploy to Streamlit Cloud
+1. Push your code to a GitHub repository (Public or Private)
+2. Go to [share.streamlit.io](https://share.streamlit.io) and deploy the app
+3. In App Settings -> **Secrets**, paste the following configuration:
 
-1. Disable "Use Mock Data" in the sidebar
-2. Expand "API Credentials"
-3. Enter your Client ID and Client Secret
-4. Click "Connect Twin A" and complete OAuth flow
-5. Repeat for "Connect Twin B" with the second Oura account
+```toml
+[passwords]
+dr_patryjca = "YourSecurePasswordHere"
 
-## OAuth2 Flow
-
-The application implements the standard OAuth2 Authorization Code flow:
-
+[oura]
+client_id = "your_oura_client_id"
+client_secret = "your_oura_client_secret"
+redirect_uri = "https://<your-app-url>.streamlit.app"
 ```
-┌─────────┐                              ┌─────────┐                              ┌─────────┐
-│Dashboard│                              │  Oura   │                              │  User   │
-└────┬────┘                              └────┬────┘                              └────┬────┘
-     │  1. Generate auth URL with state       │                                        │
-     │────────────────────────────────────────>                                        │
-     │                                        │  2. Redirect to Oura login             │
-     │                                        │────────────────────────────────────────>
-     │                                        │  3. User grants permission             │
-     │                                        │<────────────────────────────────────────
-     │  4. Redirect with code + state         │                                        │
-     │<────────────────────────────────────────                                        │
-     │  5. Exchange code for tokens           │                                        │
-     │────────────────────────────────────────>                                        │
-     │  6. Return access + refresh tokens     │                                        │
-     │<────────────────────────────────────────                                        │
-     │  7. Store tokens in session            │                                        │
-     │                                        │                                        │
-```
+
+> **Important:** The `redirect_uri` in Secrets MUST match exactly what is in the Oura Developer Portal.
+
+### 3. Accessing the Dashboard
+- **Login**: Use the username (`dr_patryjca`) and password defined in secrets.
+- **Connect**: Click "Connect Twin A" and "Connect Twin B" in the sidebar to authorize Oura access.
 
 ## Project Structure
 
 ```
-oura_dashboard/
-├── app.py              # Main Streamlit application
+oura-twin-dashboard/
+├── app.py              # Main dashboard application
 ├── requirements.txt    # Python dependencies
-└── README.md          # This file
+├── .gitignore         # Version control exclusion
+├── .streamlit/
+│   └── secrets.toml.example  # Template for secrets
+└── README.md          # Documentation
 ```
 
-## Configuration Options
-
-### Date Range
-- Default: Last 14 days
-- Quick select buttons for 7 or 14 days
-- Custom date picker for specific ranges
-
-### Rate Limiting
-- Oura API limit: 5000 requests per 5 minutes
-- Built-in request counter with visual progress bar
-- Automatic rate limit checking before each request
-
-## Mock Data Details
-
-The mock data generator simulates a realistic high-altitude expedition:
-
-| Phase | Days | Altitude Effect |
-|-------|------|-----------------|
-| Base Camp | 1-3 | Normal values |
-| Ascending | 4-7 | Gradual stress increase |
-| High Camp | 8-14 | Peak altitude effects |
-
-Twin B is simulated with ~15% greater altitude sensitivity to demonstrate comparative analysis.
-
-## Deployment
-
-### Local Development
-```bash
-streamlit run app.py
-```
-
-### Production Deployment (Streamlit Cloud)
-
-1. Push code to GitHub
-2. Connect repository to [Streamlit Cloud](https://streamlit.io/cloud)
-3. Set environment variables for `CLIENT_ID` and `CLIENT_SECRET`
-4. Update redirect URI in Oura developer portal to match deployment URL
-
-### Docker
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY app.py .
-EXPOSE 8501
-CMD ["streamlit", "run", "app.py", "--server.port=8501"]
-```
-
-## API Reference
-
-Based on Oura API V2 (OpenAPI spec version 1.27):
-
-- **Base URL**: `https://api.ouraring.com/v2`
-- **Auth URL**: `https://cloud.ouraring.com/oauth/authorize`
-- **Token URL**: `https://api.ouraring.com/oauth/token`
-
-### Required Scopes
-- `email` - User email for identification
-- `personal` - Age, gender (for context)
-- `daily` - Daily summaries including sleep scores
-- `heartrate` - Heart rate data
-- `spo2Daily` - SpO2 measurements
+## Security & Privacy
+- **Authentication**: Requires login to access any data (powered by Streamlit Secrets).
+- **Token Storage**: OAuth tokens are stored in session state and survive refresh but are not persisted permanently on the server disk for security.
+- **Data Privacy**: No data is saved to a database; it is fetched live from Oura API on demand.
 
 ## Troubleshooting
 
-### "401 Unauthorized" Error
-- Token may be expired → App will attempt automatic refresh
-- If persistent, disconnect and reconnect the affected twin
+### "400 Invalid Request" during connection
+- Check that your `redirect_uri` in Oura Portal matches EXACTLY the URL in your Streamlit Secrets.
+- Ensure no trailing slashes mismatch (e.g. `...app` vs `...app/`).
 
-### "403 Forbidden" Error
-- User's Oura subscription may have expired
-- Required scopes may not have been granted during OAuth
-
-### "429 Rate Limit Exceeded"
-- Wait for the rate limit window to reset (5 minutes)
-- Reduce date range to fetch less data
-
-### No Data Showing
-- Ensure the user has synced their ring with the Oura app
-- Check that the date range includes days with recorded data
-- SpO2 data requires the user to have SpO2 monitoring enabled
-
-## Security Notes
-
-- **Never commit** Client ID/Secret to version control
-- Use environment variables for production deployments
-- Tokens are stored in Streamlit session state (memory only)
-- OAuth state parameter prevents CSRF attacks
+### SpO2 Data Missing
+- Verify exact scope is `spo2` (old docs might say `spo2Daily` which is incorrect).
+- Ensure the user's ring is Gen 3 or Gen 4.
+- Data availability usually has a slight delay compared to other daily metrics.
 
 ## License
-
-MIT License - Built for research purposes.
-
-## Acknowledgments
-
-- Built for Dr. Patrycja's High-Altitude Physiology Study
-- Oura Ring API Documentation: https://cloud.ouraring.com/docs
-- Streamlit Documentation: https://docs.streamlit.io
+MIT License - Research Use Only.
