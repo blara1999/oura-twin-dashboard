@@ -1,0 +1,23 @@
+# Oura Ring Twin Physiology Dashboard
+# Requirements File
+# Python 3.9+ recommended
+
+# Core framework
+streamlit>=1.31.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualization
+plotly>=5.18.0
+
+# HTTP requests for API calls
+requests>=2.31.0
+
+# For secure random state generation (built-in, but listed for clarity)
+# secrets (built-in Python 3.6+)
+
+# Optional: For development/testing
+# pytest>=7.4.0
+# python-dotenv>=1.0.0
