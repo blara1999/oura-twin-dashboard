@@ -110,5 +110,16 @@ oura-twin-dashboard/
 - Ensure the user's ring is Gen 3 or Gen 4.
 - Data availability usually has a slight delay compared to other daily metrics.
 
+## Keep-Alive Mechanism
+
+Streamlit Community Cloud puts apps to sleep after 12 hours of inactivity. This repository includes a GitHub Actions workflow (`.github/workflows/keep-alive.yml`) that automatically pings the app every 10 hours to prevent hibernation.
+
+### Setup
+Add your Streamlit app URL as a repository secret:
+1. Go to **Settings** → **Secrets and variables** → **Actions**
+2. Create a secret named `STREAMLIT_APP_URL` with your full app URL
+
+The workflow runs automatically at 00:00, 10:00, and 20:00 UTC. You can also trigger it manually from the Actions tab.
+
 ## License
 MIT License - Research Use Only.
