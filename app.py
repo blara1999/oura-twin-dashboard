@@ -113,6 +113,18 @@ def check_password() -> bool:
         
         if submitted:
             try:
+                # Debug: Show what we're checking
+                with st.expander("🔍 Debug Info", expanded=True):
+                    st.write(f"Username entered: '{username}'")
+                    st.write(f"Password length: {len(password) if password else 0}")
+                    st.write(f"Available users: {list(st.secrets.get('passwords', {}).keys())}")
+                    if username in st.secrets.get("passwords", {}):
+                        stored = st.secrets["passwords"][username]
+                        st.write(f"Stored password length: {len(stored)}")
+                        st.write(f"Passwords match: {password == stored}")
+                    else:
+                        st.write(f"Username '{username}' not found in secrets")
+                
                 if username in st.secrets["passwords"] and password == st.secrets["passwords"][username]:
                     st.session_state["authenticated"] = True
                     st.session_state["current_user"] = username
