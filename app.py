@@ -104,12 +104,12 @@ def check_password() -> bool:
     st.markdown('<div class="login-title">🔬 Twin Physiology Monitor</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-subtitle">High-Altitude Expedition Dashboard</div>', unsafe_allow_html=True)
     
-    # Use a form to prevent multiple submission issues
-    with st.container():
+    # Use a form to prevent multiple submission issues and state synchronization bugs
+    with st.form("login_form"):
         username = st.text_input("Username", key="login_username")
         password = st.text_input("Password", type="password", key="login_password")
         remember_me = st.checkbox("Remember me", key="login_remember")
-        submitted = st.button("Log in", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
         
         if submitted:
             try:
