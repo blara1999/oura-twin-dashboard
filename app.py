@@ -1187,6 +1187,13 @@ def create_intraday_comparison_chart(
     text_color = '#e2e8f0' if dark_mode else '#1e293b'
     grid_color = '#334155' if dark_mode else '#e2e8f0'
     
+    # Define fixed X-axis range (5am - 9pm) for the current view
+    # Note: Timestamps in data are converted to Dubai time but stripped of tzinfo
+    # So we use naive datetimes for the range
+    current_date = datetime.now().date()
+    start_range = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=5)
+    end_range = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=21)
+    
     fig.update_layout(
         title=None,
         height=280,
@@ -1203,11 +1210,12 @@ def create_intraday_comparison_chart(
             bgcolor='rgba(0,0,0,0)'
         ),
         xaxis=dict(
-            showgrid=True,
+            showgrid=False,
             gridcolor=grid_color,
             gridwidth=1,
             tickformat='%H:%M',
-            title='Time'
+            title='Time',
+            range=[start_range, end_range]
         ),
         yaxis=dict(
             showgrid=True,
