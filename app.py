@@ -2001,16 +2001,8 @@ def render_main_content():
     st.markdown("### 🏃 Exercise Session Comparison")
     st.caption("Real-time heart rate monitoring: **Twin A** (IHT - Intermittent Hypoxic Training) vs **Twin B** (Regular Training)")
     
-    # Timeframe selector
-    exercise_col1, exercise_col2 = st.columns([1, 4])
-    with exercise_col1:
-        exercise_hours = st.selectbox(
-            "Timeframe",
-            options=[1, 2, 4, 8],
-            index=2,  # Default to 4 hours
-            format_func=lambda x: f"Last {x}h",
-            key="exercise_timeframe"
-        )
+    # Timeframe selector (Removed - now fixed 5am-9pm)
+    exercise_hours = 16  # Fetch enough data to cover roughly 5am to 9pm depending on fetch time
     
     # Fetch intraday data from API
     intraday_a = get_intraday_data_for_twin('twin_a', exercise_hours) if twin_a_connected else []
