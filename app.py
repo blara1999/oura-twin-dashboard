@@ -1098,10 +1098,30 @@ def create_intraday_comparison_chart(
     
     has_data = False
     
+    def parse_timestamp_to_local(ts_str: str) -> pd.Timestamp:
+        """Parse ISO 8601 timestamp and convert to local timezone for display."""
+        # Parse with timezone info
+        ts = pd.to_datetime(ts_str)
+        # If timezone-aware (e.g., from Oura API with +00:00), convert to local time
+        if ts.tzinfo is not None:
+            # Get local timezone offset
+            import time
+            local_offset_seconds = -time.timezone if time.daylight == 0 else -time.altzone
+            local_tz = pd.Timestamp.now().tz_localize('UTC').tz_convert('UTC').tzinfo
+            # Convert to local and remove tz info for plotting
+            try:
+                from dateutil import tz
+                local_tz = tz.tzlocal()
+                ts = ts.astimezone(local_tz).replace(tzinfo=None)
+            except ImportError:
+                # Fallback: just remove timezone (display in UTC)
+                ts = ts.tz_localize(None)
+        return ts
+    
     # Process Twin A data
     if data_a:
         has_data = True
-        timestamps_a = [pd.to_datetime(d['timestamp']) for d in data_a]
+        timestamps_a = [parse_timestamp_to_local(d['timestamp']) for d in data_a]
         bpm_a = [d['bpm'] for d in data_a]
         
         fig.add_trace(go.Scatter(
@@ -1117,7 +1137,7 @@ def create_intraday_comparison_chart(
     # Process Twin B data
     if data_b:
         has_data = True
-        timestamps_b = [pd.to_datetime(d['timestamp']) for d in data_b]
+        timestamps_b = [parse_timestamp_to_local(d['timestamp']) for d in data_b]
         bpm_b = [d['bpm'] for d in data_b]
         
         fig.add_trace(go.Scatter(
