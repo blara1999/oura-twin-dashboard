@@ -8,7 +8,6 @@ Features:
 - OAuth2 Authorization Code flow for two Oura accounts
 - Near real-time monitoring of critical altitude physiology metrics
 - Comparative visualization between Twin A (Blue) and Twin B (Red)
-- Mock data toggle for testing without API credentials
 
 Author: Senior Full Stack Data Scientist
 Date: January 2026
@@ -24,7 +23,7 @@ from datetime import datetime, timedelta, date
 from urllib.parse import urlencode, parse_qs
 import secrets
 import time
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 import json
 import os
 from pathlib import Path
@@ -606,7 +605,6 @@ def init_session_state():
         'last_fetch_time': None,
         
         # UI state
-        'use_mock_data': True,
         'date_range': (date.today() - timedelta(days=14), date.today()),
         
         # Rate limiting
@@ -1012,129 +1010,172 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
 # =============================================================================
 # MOCK DATA GENERATION
 # =============================================================================
+# Mock data generation removed - now using real API data only
 
-def generate_mock_data(start_date: date, end_date: date, twin: str) -> Dict[str, Any]:
+# =============================================================================
+# INTRADAY HEART RATE DATA (for Exercise Session Comparison)
+# =============================================================================
+
+def fetch_intraday_heartrate(
+    token: str,
+    hours: int = 4
+) -> List[Dict[str, Any]]:
     """
-    Generate realistic mock data for testing the dashboard.
-    
-    Simulates a high-altitude expedition with gradual acclimatization effects.
-    Twin A and Twin B have slightly different physiological responses.
+    Fetch intraday heart rate data for the last N hours.
     
     Args:
-        start_date: Start date
-        end_date: End date
-        twin: 'twin_a' or 'twin_b'
+        token: OAuth2 access token
+        hours: Number of hours to fetch (default 4)
     
     Returns:
-        Dictionary mimicking API response structure
+        List of heart rate readings with timestamp and bpm
     """
-    np.random.seed(42 if twin == 'twin_a' else 123)  # Reproducible but different
+    if not token:
+        return []
     
-    dates = pd.date_range(start=start_date, end=end_date, freq='D')
-    num_days = len(dates)
+    if not check_rate_limit():
+        return []
     
-    # Simulate altitude progression (expedition scenario)
-    # Days 1-3: base camp (low altitude)
-    # Days 4-7: ascending
-    # Days 8-14: high altitude camp
-    altitude_factor = np.zeros(num_days)
-    for i in range(num_days):
-        if i < 3:
-            altitude_factor[i] = 0.0
-        elif i < 7:
-            altitude_factor[i] = (i - 3) * 0.25  # Gradual increase
-        else:
-            altitude_factor[i] = 1.0  # Peak altitude
+    end_time = datetime.now()
+    start_time = end_time - timedelta(hours=hours)
     
-    # Twin-specific response modifier
-    twin_modifier = 1.0 if twin == 'twin_a' else 1.15  # Twin B slightly more affected
-    
-    # Generate SpO2 data (drops at altitude)
-    base_spo2 = 98 if twin == 'twin_a' else 97
-    spo2_values = base_spo2 - (altitude_factor * 8 * twin_modifier) + np.random.normal(0, 1, num_days)
-    spo2_values = np.clip(spo2_values, 82, 99)
-    
-    # Generate RHR (increases at altitude)
-    base_rhr = 52 if twin == 'twin_a' else 55
-    rhr_values = base_rhr + (altitude_factor * 12 * twin_modifier) + np.random.normal(0, 3, num_days)
-    rhr_values = np.clip(rhr_values, 45, 85).astype(int)
-    
-    # Generate HRV (decreases at altitude / with stress)
-    base_hrv = 65 if twin == 'twin_a' else 58
-    hrv_values = base_hrv - (altitude_factor * 20 * twin_modifier) + np.random.normal(0, 8, num_days)
-    hrv_values = np.clip(hrv_values, 15, 90).astype(int)
-    
-    # Generate respiratory rate (increases at altitude - hypoxic ventilatory response)
-    base_resp = 14.5 if twin == 'twin_a' else 15.0
-    resp_values = base_resp + (altitude_factor * 4 * twin_modifier) + np.random.normal(0, 0.8, num_days)
-    resp_values = np.clip(resp_values, 12, 22)
-    
-    # Generate sleep scores (decreases at altitude)
-    base_sleep_score = 85 if twin == 'twin_a' else 82
-    sleep_scores = base_sleep_score - (altitude_factor * 15 * twin_modifier) + np.random.normal(0, 5, num_days)
-    sleep_scores = np.clip(sleep_scores, 40, 95).astype(int)
-    
-    # Generate cardiovascular age (relatively stable, slight increase with stress)
-    base_cv_age = 28 if twin == 'twin_a' else 29
-    cv_ages = base_cv_age + (altitude_factor * 2 * twin_modifier) + np.random.normal(0, 1, num_days)
-    cv_ages = np.clip(cv_ages, 25, 40).astype(int)
-    
-    # Build response structure matching API format
-    data = {
-        'daily_spo2': [
-            {
-                'id': f'spo2_{twin}_{i}',
-                'day': dates[i].strftime('%Y-%m-%d'),
-                'spo2_percentage': {'average': float(spo2_values[i])},
-                'breathing_disturbance_index': int(np.random.randint(0, 10))
-            }
-            for i in range(num_days) if not np.isnan(spo2_values[i])
-        ],
-        'sleep': [
-            {
-                'id': f'sleep_{twin}_{i}',
-                'day': dates[i].strftime('%Y-%m-%d'),
-                'bedtime_start': (dates[i] - timedelta(hours=np.random.uniform(6, 8))).isoformat(),
-                'bedtime_end': dates[i].isoformat(),
-                'lowest_heart_rate': int(rhr_values[i]),
-                'average_heart_rate': int(rhr_values[i] + 8),
-                'average_hrv': int(hrv_values[i]),
-                'average_breath': float(resp_values[i]),
-                'efficiency': int(np.random.randint(75, 95)),
-                'total_sleep_duration': int(np.random.randint(21600, 32400)),  # 6-9 hours
-                'deep_sleep_duration': int(np.random.randint(3600, 7200)),
-                'rem_sleep_duration': int(np.random.randint(3600, 7200)),
-                'light_sleep_duration': int(np.random.randint(10800, 18000))
-            }
-            for i in range(num_days)
-        ],
-        'daily_sleep': [
-            {
-                'id': f'daily_sleep_{twin}_{i}',
-                'day': dates[i].strftime('%Y-%m-%d'),
-                'score': int(sleep_scores[i]),
-                'timestamp': dates[i].isoformat()
-            }
-            for i in range(num_days)
-        ],
-        'cardiovascular_age': [
-            {
-                'day': dates[i].strftime('%Y-%m-%d'),
-                'vascular_age': int(cv_ages[i])
-            }
-            for i in range(num_days)
-        ],
-        'daily_readiness': [
-            {
-                'day': dates[i].strftime('%Y-%m-%d'),
-                'temperature_deviation': round(np.random.uniform(-0.5, 0.5) + (0.2 if twin == 'twin_b' else 0), 2),
-                'score': int(np.random.randint(70, 95))
-            }
-            for i in range(num_days)
-        ]
+    url = f"{OURA_API_BASE}/usercollection/heartrate"
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    params = {
+        'start_datetime': start_time.isoformat(),
+        'end_datetime': end_time.isoformat()
     }
     
-    return data
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('data', [])
+        else:
+            return []
+            
+    except requests.RequestException:
+        return []
+
+def get_intraday_data_for_twin(twin: str, hours: int = 4) -> List[Dict[str, Any]]:
+    """
+    Get intraday heart rate data for a twin from the Oura API.
+    
+    Args:
+        twin: 'twin_a' or 'twin_b'
+        hours: Number of hours of data
+    
+    Returns:
+        List of heart rate readings
+    """
+    token = st.session_state.get(f'{twin}_token')
+    if not token:
+        return []
+    
+    return fetch_intraday_heartrate(token, hours)
+
+def create_intraday_comparison_chart(
+    data_a: List[Dict[str, Any]],
+    data_b: List[Dict[str, Any]],
+    dark_mode: bool = False
+) -> go.Figure:
+    """
+    Create a comparative intraday heart rate chart for exercise session comparison.
+    
+    Args:
+        data_a: Twin A heart rate data
+        data_b: Twin B heart rate data
+        dark_mode: Whether to use dark mode styling
+    
+    Returns:
+        Plotly Figure object
+    """
+    fig = go.Figure()
+    
+    has_data = False
+    
+    # Process Twin A data
+    if data_a:
+        has_data = True
+        timestamps_a = [pd.to_datetime(d['timestamp']) for d in data_a]
+        bpm_a = [d['bpm'] for d in data_a]
+        
+        fig.add_trace(go.Scatter(
+            x=timestamps_a,
+            y=bpm_a,
+            name='Twin A (IHT)',
+            line=dict(color=TWIN_A_COLOR, width=2),
+            mode='lines+markers',
+            marker=dict(size=4),
+            hovertemplate='<b>Twin A</b><br>Time: %{x|%H:%M}<br>HR: %{y} bpm<extra></extra>'
+        ))
+    
+    # Process Twin B data
+    if data_b:
+        has_data = True
+        timestamps_b = [pd.to_datetime(d['timestamp']) for d in data_b]
+        bpm_b = [d['bpm'] for d in data_b]
+        
+        fig.add_trace(go.Scatter(
+            x=timestamps_b,
+            y=bpm_b,
+            name='Twin B (Regular)',
+            line=dict(color=TWIN_B_COLOR, width=2),
+            mode='lines+markers',
+            marker=dict(size=4),
+            hovertemplate='<b>Twin B</b><br>Time: %{x|%H:%M}<br>HR: %{y} bpm<extra></extra>'
+        ))
+    
+    # Styling
+    bg_color = '#1e293b' if dark_mode else '#ffffff'
+    text_color = '#e2e8f0' if dark_mode else '#1e293b'
+    grid_color = '#334155' if dark_mode else '#e2e8f0'
+    
+    fig.update_layout(
+        title=None,
+        height=280,
+        margin=dict(l=40, r=20, t=20, b=40),
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        font=dict(color=text_color, family='Inter, sans-serif', size=11),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='left',
+            x=0,
+            bgcolor='rgba(0,0,0,0)'
+        ),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor=grid_color,
+            gridwidth=1,
+            tickformat='%H:%M',
+            title='Time'
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor=grid_color,
+            gridwidth=1,
+            title='Heart Rate (bpm)'
+        ),
+        hovermode='x unified'
+    )
+    
+    if not has_data:
+        fig.add_annotation(
+            text="No intraday heart rate data available",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14, color=text_color)
+        )
+    
+    return fig
 
 # =============================================================================
 # DATA PROCESSING
@@ -1879,6 +1920,71 @@ def render_main_content():
             st.caption(f"**Twin B** synced: {sync_time}")
         else:
             st.caption("**Twin B**: No data")
+    
+    st.divider()
+    
+    # ==========================================================================
+    # EXERCISE SESSION COMPARISON (IHT Study - Intraday Heart Rate)
+    # ==========================================================================
+    st.markdown("### 🏃 Exercise Session Comparison")
+    st.caption("Real-time heart rate monitoring: **Twin A** (IHT - Intermittent Hypoxic Training) vs **Twin B** (Regular Training)")
+    
+    # Timeframe selector
+    exercise_col1, exercise_col2 = st.columns([1, 4])
+    with exercise_col1:
+        exercise_hours = st.selectbox(
+            "Timeframe",
+            options=[1, 2, 4, 8],
+            index=2,  # Default to 4 hours
+            format_func=lambda x: f"Last {x}h",
+            key="exercise_timeframe"
+        )
+    
+    # Fetch intraday data from API
+    intraday_a = get_intraday_data_for_twin('twin_a', exercise_hours) if twin_a_connected else []
+    intraday_b = get_intraday_data_for_twin('twin_b', exercise_hours) if twin_b_connected else []
+    
+    # Get dark mode state
+    is_dark = st.session_state.get('dark_mode', False)
+    
+    # Create and display the chart
+    fig_exercise = create_intraday_comparison_chart(intraday_a, intraday_b, dark_mode=is_dark)
+    st.plotly_chart(fig_exercise, use_container_width=True)
+    
+    # Show quick stats
+    if intraday_a or intraday_b:
+        ex_stats_col1, ex_stats_col2, ex_stats_col3, ex_stats_col4 = st.columns(4)
+        
+        with ex_stats_col1:
+            if intraday_a:
+                max_hr_a = max(d['bpm'] for d in intraday_a)
+                st.metric("Twin A Peak HR", f"{max_hr_a} bpm")
+            else:
+                st.metric("Twin A Peak HR", "—")
+        
+        with ex_stats_col2:
+            if intraday_b:
+                max_hr_b = max(d['bpm'] for d in intraday_b)
+                st.metric("Twin B Peak HR", f"{max_hr_b} bpm")
+            else:
+                st.metric("Twin B Peak HR", "—")
+        
+        with ex_stats_col3:
+            if intraday_a:
+                avg_hr_a = int(sum(d['bpm'] for d in intraday_a) / len(intraday_a))
+                st.metric("Twin A Avg HR", f"{avg_hr_a} bpm")
+            else:
+                st.metric("Twin A Avg HR", "—")
+        
+        with ex_stats_col4:
+            if intraday_b:
+                avg_hr_b = int(sum(d['bpm'] for d in intraday_b) / len(intraday_b))
+                st.metric("Twin B Avg HR", f"{avg_hr_b} bpm")
+            else:
+                st.metric("Twin B Avg HR", "—")
+    
+    if not intraday_a and not intraday_b:
+        st.caption("💡 *Connect Oura accounts to see intraday heart rate data.*")
     
     st.divider()
     
