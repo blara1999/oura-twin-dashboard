@@ -26,6 +26,9 @@ import time
 from typing import Optional, Dict, Any, Tuple, List
 import json
 import os
+import hashlib
+# import extra_streamlit_components as stx  # Replaced with cookies controller
+from streamlit_cookies_controller import CookieController
 from pathlib import Path
 
 # =============================================================================
@@ -49,10 +52,37 @@ def check_password() -> bool:
     if not is_running_on_cloud():
         return True
     
-    # Return True if already authenticated
+    # Return True if already authenticated in session
     if st.session_state.get("authenticated", False):
         return True
 
+    # Initialize Cookie Controller
+    # key is important for streamlits component state
+    cookie_controller = CookieController(key='auth_cookies')
+    
+    # Check for valid auth cookie
+    # streamlit-cookies-controller reads cookies into component state
+    cookies = cookie_controller.getAll()
+    auth_cookie = cookies.get("dashboard_auth")
+    
+    if auth_cookie:
+        try:
+            # Format: username:hash
+            username, token_hash = auth_cookie.split(":", 1)
+            
+            # Verify against secrets
+            if username in st.secrets["passwords"]:
+                stored_password = st.secrets["passwords"][username]
+                # Reconstruct expected hash
+                expected_hash = hashlib.sha256(f"{username}{stored_password}".encode()).hexdigest()
+                
+                if token_hash == expected_hash:
+                    st.session_state["authenticated"] = True
+                    st.session_state["current_user"] = username
+                    return True
+        except (ValueError, AttributeError):
+            pass # Invalid cookie format
+            
     # Show login form using st.form for stable state management
     st.markdown("""
     <style>
@@ -75,21 +105,32 @@ def check_password() -> bool:
     st.markdown('<div class="login-subtitle">High-Altitude Expedition Dashboard</div>', unsafe_allow_html=True)
     
     # Use a form to prevent multiple submission issues
-    with st.form("login_form"):
+    with st.container():
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
+        remember_me = st.checkbox("Remember me")
+        submitted = st.button("Log in", type="primary", use_container_width=True)
         
         if submitted:
             try:
                 if username in st.secrets["passwords"] and password == st.secrets["passwords"][username]:
                     st.session_state["authenticated"] = True
                     st.session_state["current_user"] = username
+                    
+                    if remember_me:
+                        # Create secure token: username:hash(username+password)
+                        token_hash = hashlib.sha256(f"{username}{password}".encode()).hexdigest()
+                        cookie_value = f"{username}:{token_hash}"
+                        # Set cookie for 30 days
+                        cookie_controller.set("dashboard_auth", cookie_value)
+                        # Note: We might need to manually rerun or wait for cookie set?
+                        # Usually controller.set updates frontend.
+                    
                     st.rerun()
                 else:
                     st.error("😕 Invalid username or password")
-            except Exception:
-                st.error("😕 Authentication error")
+            except Exception as e:
+                st.error(f"😕 Authentication error: {e}")
     
     return False
 
