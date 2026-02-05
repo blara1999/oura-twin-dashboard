@@ -63,7 +63,7 @@ def check_password() -> bool:
     # Check for valid auth cookie
     # streamlit-cookies-controller reads cookies into component state
     cookies = cookie_controller.getAll()
-    auth_cookie = cookies.get("dashboard_auth")
+    auth_cookie = cookies.get("dashboard_auth") if cookies else None
     
     if auth_cookie:
         try:
