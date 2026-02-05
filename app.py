@@ -106,9 +106,9 @@ def check_password() -> bool:
     
     # Use a form to prevent multiple submission issues
     with st.container():
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        remember_me = st.checkbox("Remember me")
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input("Password", type="password", key="login_password")
+        remember_me = st.checkbox("Remember me", key="login_remember")
         submitted = st.button("Log in", type="primary", use_container_width=True)
         
         if submitted:
