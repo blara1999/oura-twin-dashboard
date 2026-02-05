@@ -1,0 +1,35 @@
+# GitHub Actions workflow to keep Streamlit Cloud app awake
+# Pings the app every 10 hours to prevent it from sleeping after 12 hours of inactivity
+
+name: Keep Streamlit App Alive
+
+on:
+  schedule:
+    # Run every 10 hours (at 00:00, 10:00, 20:00 UTC)
+    - cron: '0 0,10,20 * * *'
+  workflow_dispatch:  # Allow manual trigger for testing
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          echo "Pinging Streamlit app to keep it awake..."
+          
+          # Make HTTP request to the app URL
+          # This simulates a user visit and resets the inactivity timer
+          response=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.STREAMLIT_APP_URL }}" || echo "000")
+          
+          echo "Response code: $response"
+          
+          if [ "$response" = "200" ] || [ "$response" = "302" ]; then
+            echo "✅ App is awake and responding!"
+          elif [ "$response" = "000" ]; then
+            echo "⚠️ Could not reach app (might be waking up)"
+          else
+            echo "⚠️ App returned status $response"
+          fi
+          
+          # Always exit successfully - we don't want failed pings to spam notifications
+          exit 0
