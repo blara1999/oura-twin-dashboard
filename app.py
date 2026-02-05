@@ -1099,23 +1099,14 @@ def create_intraday_comparison_chart(
     has_data = False
     
     def parse_timestamp_to_local(ts_str: str) -> pd.Timestamp:
-        """Parse ISO 8601 timestamp and convert to local timezone for display."""
+        """Parse ISO 8601 timestamp and convert to Dubai timezone (UTC+4)."""
         # Parse with timezone info
         ts = pd.to_datetime(ts_str)
-        # If timezone-aware (e.g., from Oura API with +00:00), convert to local time
+        # If timezone-aware, convert to Dubai time
         if ts.tzinfo is not None:
-            # Get local timezone offset
-            import time
-            local_offset_seconds = -time.timezone if time.daylight == 0 else -time.altzone
-            local_tz = pd.Timestamp.now().tz_localize('UTC').tz_convert('UTC').tzinfo
-            # Convert to local and remove tz info for plotting
-            try:
-                from dateutil import tz
-                local_tz = tz.tzlocal()
-                ts = ts.astimezone(local_tz).replace(tzinfo=None)
-            except ImportError:
-                # Fallback: just remove timezone (display in UTC)
-                ts = ts.tz_localize(None)
+            # Fixed offset for Dubai (UTC+4)
+            ts = ts.tz_convert('Etc/GMT-4')  # Note: Etc/GMT-4 is actually GMT+4
+            ts = ts.tz_localize(None) # Remove tz info for plotting
         return ts
     
     # Process Twin A data
@@ -2055,8 +2046,8 @@ def render_main_content():
     st.markdown("### Trend Analysis")
     
     # Info about data availability
-    if not st.session_state.use_mock_data:
-        with st.expander("About Data Availability", expanded=False):
+    # Info about data availability
+    with st.expander("About Data Availability", expanded=False):
             st.markdown("""
             **Why might some metrics show "No Data"?**
             - **SpO2**: Requires SpO2 monitoring enabled in Oura app settings
