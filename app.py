@@ -717,20 +717,27 @@ def inject_dark_mode_css():
 
 def init_session_state():
     """Initialize all session state variables."""
-    # Load persisted credentials
     # Load persisted credentials and tokens
     saved_creds = load_credentials()
     token_data = load_tokens()
     
+    # Token keys that should ALWAYS be loaded from persistent storage if available
+    # This ensures tokens survive Streamlit restarts
+    token_keys = [
+        'twin_a_token', 'twin_b_token',
+        'twin_a_refresh_token', 'twin_b_refresh_token',
+        'twin_a_token_expiry', 'twin_b_token_expiry'
+    ]
+    
+    # Always load tokens from persistent storage (overrides session state)
+    for key in token_keys:
+        if token_data.get(key):
+            st.session_state[key] = token_data.get(key)
+        elif key not in st.session_state:
+            st.session_state[key] = None
+    
+    # Other defaults (only set if not already in session)
     defaults = {
-        # OAuth tokens
-        'twin_a_token': token_data.get('twin_a_token'),
-        'twin_b_token': token_data.get('twin_b_token'),
-        'twin_a_refresh_token': token_data.get('twin_a_refresh_token'),
-        'twin_b_refresh_token': token_data.get('twin_b_refresh_token'),
-        'twin_a_token_expiry': token_data.get('twin_a_token_expiry'),
-        'twin_b_token_expiry': token_data.get('twin_b_token_expiry'),
-        
         # Cached data
         'twin_a_data': None,
         'twin_b_data': None,
