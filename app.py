@@ -675,10 +675,40 @@ def inject_dark_mode_css():
         border-color: #475569 !important;
     }
     
-    /* Buttons */
+    /* Buttons - enhanced dark mode styling */
     .stButton button {
         color: #e2e8f0 !important;
-        border-color: #475569 !important;
+        background-color: #334155 !important;
+        border: 1px solid #475569 !important;
+    }
+    
+    .stButton button:hover {
+        background-color: #475569 !important;
+        border-color: #64748b !important;
+    }
+    
+    /* Primary buttons */
+    .stButton button[kind="primary"],
+    button[data-testid="baseButton-primary"] {
+        background-color: #3b82f6 !important;
+        border-color: #3b82f6 !important;
+        color: #ffffff !important;
+    }
+    
+    button[data-testid="baseButton-primary"]:hover {
+        background-color: #2563eb !important;
+        border-color: #2563eb !important;
+    }
+    
+    /* Link buttons */
+    .stLinkButton a {
+        color: #38bdf8 !important;
+        background-color: #334155 !important;
+        border: 1px solid #475569 !important;
+    }
+    
+    .stLinkButton a:hover {
+        background-color: #475569 !important;
     }
     
     /* Date inputs */
@@ -2056,10 +2086,21 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             'activity': ', '.join(day_data['activity'].unique())
         }
     
-    # Color scheme
-    twin_a_bg = "#e0f2fe"  # Light blue
-    twin_b_bg = "#fce7f3"  # Light pink
-    header_bg = "#f1f5f9"  # Light gray
+    # Color scheme - dark mode aware
+    if dark_mode:
+        twin_a_bg = "#1e3a5f"  # Dark blue
+        twin_b_bg = "#4a1942"  # Dark pink/magenta
+        header_bg = "#334155"  # Dark gray
+        total_bg = "#1e293b"   # Darker gray
+        border_color = "#475569"  # Gray border
+        text_color = "#e2e8f0"  # Light text
+    else:
+        twin_a_bg = "#e0f2fe"  # Light blue
+        twin_b_bg = "#fce7f3"  # Light pink
+        header_bg = "#f1f5f9"  # Light gray
+        total_bg = "#f8fafc"   # Light gray
+        border_color = "#e2e8f0"  # Light border
+        text_color = "#1e293b"  # Dark text
     
     # Render one table per week
     for week in weeks:
@@ -2090,18 +2131,18 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
         week_b_hours = sum(float(h.replace('h', '')) if h != '—' else 0 for h in twin_b_hours)
         week_b_cals = sum(int(c) if c != '—' else 0 for c in twin_b_cals)
         
-        # Build styled HTML table
+        # Build styled HTML table with dark mode support
         html = f'''
         <style>
             .workout-table {{ width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 0.85rem; table-layout: fixed; }}
-            .workout-table th {{ background-color: {header_bg}; padding: 8px; text-align: center; border: 1px solid #e2e8f0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+            .workout-table th {{ background-color: {header_bg}; padding: 8px; text-align: center; border: 1px solid {border_color}; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {text_color}; }}
             .workout-table th:first-child {{ width: 140px; }}
             .workout-table th:last-child {{ width: 60px; }}
-            .workout-table td {{ padding: 6px 8px; text-align: center; border: 1px solid #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+            .workout-table td {{ padding: 6px 8px; text-align: center; border: 1px solid {border_color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {text_color}; }}
             .workout-table .metric-label {{ text-align: left; font-weight: 500; width: 140px; }}
             .twin-a {{ background-color: {twin_a_bg}; }}
             .twin-b {{ background-color: {twin_b_bg}; }}
-            .total-col {{ font-weight: 600; background-color: #f8fafc; }}
+            .total-col {{ font-weight: 600; background-color: {total_bg}; }}
         </style>
         <table class="workout-table">
             <thead>
