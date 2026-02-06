@@ -97,6 +97,12 @@ def check_password() -> bool:
     # Show login form using st.form for stable state management
     st.markdown("""
     <style>
+    /* Hide Streamlit header, footer, and deploy button */
+    header[data-testid="stHeader"] {display: none !important;}
+    .stAppDeployButton {display: none !important;}
+    footer {display: none !important;}
+    #MainMenu {display: none !important;}
+    
     .login-title {
         text-align: center;
         color: #1e293b;
@@ -2316,6 +2322,16 @@ def render_sidebar():
 
 def render_main_content():
     """Render the main dashboard content with tabbed layout."""
+    
+    # Hide Streamlit's built-in header, footer, and menu
+    st.markdown("""
+    <style>
+    header[data-testid="stHeader"] {display: none !important;}
+    .stAppDeployButton {display: none !important;}
+    footer {display: none !important;}
+    #MainMenu {display: none !important;}
+    </style>
+    """, unsafe_allow_html=True)
     
     # Header (always visible)
     st.markdown('<div class="main-header">Twin Physiology Monitor</div>', unsafe_allow_html=True)
