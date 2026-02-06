@@ -1970,19 +1970,20 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             'activity': ', '.join(day_data['activity'].unique())
         }
     
-    # Track grand totals
-    grand_total_a_hours = 0
-    grand_total_a_cals = 0
-    grand_total_b_hours = 0
-    grand_total_b_cals = 0
+    # Color scheme
+    twin_a_bg = "#e0f2fe"  # Light blue
+    twin_b_bg = "#fce7f3"  # Light pink
+    header_bg = "#f1f5f9"  # Light gray
     
     # Render one table per week
     for week in weeks:
-        st.markdown(f"**{week['label']}**")
+        st.markdown(f"#### {week['label']}")
         
         # Build table data
+        twin_a_activities = []
         twin_a_hours = []
         twin_a_cals = []
+        twin_b_activities = []
         twin_b_hours = []
         twin_b_cals = []
         
@@ -1990,15 +1991,12 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             data_a = get_day_data(df_a, day_date)
             data_b = get_day_data(df_b, day_date)
             
+            twin_a_activities.append(data_a['activity'])
             twin_a_hours.append(f"{data_a['hours']}h" if data_a['hours'] else "—")
             twin_a_cals.append(str(data_a['calories']) if data_a['calories'] else "—")
+            twin_b_activities.append(data_b['activity'])
             twin_b_hours.append(f"{data_b['hours']}h" if data_b['hours'] else "—")
             twin_b_cals.append(str(data_b['calories']) if data_b['calories'] else "—")
-            
-            grand_total_a_hours += data_a['hours']
-            grand_total_a_cals += data_a['calories']
-            grand_total_b_hours += data_b['hours']
-            grand_total_b_cals += data_b['calories']
         
         # Calculate week totals
         week_a_hours = sum(float(h.replace('h', '')) if h != '—' else 0 for h in twin_a_hours)
@@ -2006,38 +2004,76 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
         week_b_hours = sum(float(h.replace('h', '')) if h != '—' else 0 for h in twin_b_hours)
         week_b_cals = sum(int(c) if c != '—' else 0 for c in twin_b_cals)
         
-        # Build DataFrame
-        data = {
-            'Metric': ['Twin A Hours', 'Twin A Cal', 'Twin B Hours', 'Twin B Cal']
-        }
-        for i, day_name in enumerate(day_names):
-            data[day_name] = [twin_a_hours[i], twin_a_cals[i], twin_b_hours[i], twin_b_cals[i]]
+        # Build styled HTML table
+        html = f'''
+        <style>
+            .workout-table {{ width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 0.85rem; }}
+            .workout-table th {{ background-color: {header_bg}; padding: 8px; text-align: center; border: 1px solid #e2e8f0; font-weight: 600; }}
+            .workout-table td {{ padding: 6px 8px; text-align: center; border: 1px solid #e2e8f0; }}
+            .workout-table .metric-label {{ text-align: left; font-weight: 500; width: 120px; }}
+            .twin-a {{ background-color: {twin_a_bg}; }}
+            .twin-b {{ background-color: {twin_b_bg}; }}
+            .total-col {{ font-weight: 600; background-color: #f8fafc; }}
+        </style>
+        <table class="workout-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    {''.join(f'<th>{d}</th>' for d in day_names)}
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="twin-a">
+                    <td class="metric-label">🔵 Twin A Activity</td>
+                    {''.join(f'<td>{a}</td>' for a in twin_a_activities)}
+                    <td class="total-col">—</td>
+                </tr>
+                <tr class="twin-a">
+                    <td class="metric-label">🔵 Twin A Hours</td>
+                    {''.join(f'<td>{h}</td>' for h in twin_a_hours)}
+                    <td class="total-col">{round(week_a_hours, 1)}h</td>
+                </tr>
+                <tr class="twin-a">
+                    <td class="metric-label">🔵 Twin A Cal</td>
+                    {''.join(f'<td>{c}</td>' for c in twin_a_cals)}
+                    <td class="total-col">{int(week_a_cals)}</td>
+                </tr>
+                <tr class="twin-b">
+                    <td class="metric-label">🔴 Twin B Activity</td>
+                    {''.join(f'<td>{a}</td>' for a in twin_b_activities)}
+                    <td class="total-col">—</td>
+                </tr>
+                <tr class="twin-b">
+                    <td class="metric-label">🔴 Twin B Hours</td>
+                    {''.join(f'<td>{h}</td>' for h in twin_b_hours)}
+                    <td class="total-col">{round(week_b_hours, 1)}h</td>
+                </tr>
+                <tr class="twin-b">
+                    <td class="metric-label">🔴 Twin B Cal</td>
+                    {''.join(f'<td>{c}</td>' for c in twin_b_cals)}
+                    <td class="total-col">{int(week_b_cals)}</td>
+                </tr>
+            </tbody>
+        </table>
+        '''
+        st.markdown(html, unsafe_allow_html=True)
         
-        data['Total'] = [
-            f"{round(week_a_hours, 1)}h",
-            str(int(week_a_cals)),
-            f"{round(week_b_hours, 1)}h",
-            str(int(week_b_cals))
-        ]
+        # Per-week comparison stats
+        diff_hours = round(week_a_hours - week_b_hours, 1)
+        diff_cals = int(week_a_cals - week_b_cals)
         
-        week_df = pd.DataFrame(data)
-        st.dataframe(week_df, use_container_width=True, hide_index=True)
-        st.markdown("")  # Spacing
-    
-    # Grand total summary
-    st.markdown("---")
-    st.markdown("**Overall Totals**")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Twin A", f"{round(grand_total_a_hours, 1)}h", f"{int(grand_total_a_cals)} cal")
-    with col2:
-        st.metric("Twin B", f"{round(grand_total_b_hours, 1)}h", f"{int(grand_total_b_cals)} cal")
-    with col3:
-        diff_hours = round(grand_total_a_hours - grand_total_b_hours, 1)
-        diff_cals = int(grand_total_a_cals - grand_total_b_cals)
-        st.metric("Difference (A - B)", 
-                  f"{'+' if diff_hours >= 0 else ''}{diff_hours}h",
-                  f"{'+' if diff_cals >= 0 else ''}{diff_cals} cal")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Twin A", f"{round(week_a_hours, 1)}h", f"{int(week_a_cals)} cal")
+        with col2:
+            st.metric("Twin B", f"{round(week_b_hours, 1)}h", f"{int(week_b_cals)} cal")
+        with col3:
+            st.metric("Diff (A - B)", 
+                      f"{'+' if diff_hours >= 0 else ''}{diff_hours}h",
+                      f"{'+' if diff_cals >= 0 else ''}{diff_cals} cal")
+        
+        st.markdown("---")  # Separator between weeks
 
 # =============================================================================
 # MAIN APPLICATION
