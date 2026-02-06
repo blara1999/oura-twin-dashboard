@@ -1094,6 +1094,64 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
 # Mock data generation removed - now using real API data only
 
 # =============================================================================
+# WORKOUT DATA FETCHING
+# =============================================================================
+
+def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> List[Dict[str, Any]]:
+    """
+    Fetch workout data for a twin from the Oura API.
+    Filters out 'walking' activities.
+    
+    Args:
+        twin: 'twin_a' or 'twin_b'
+        start_date: Start date for data range
+        end_date: End date for data range
+    
+    Returns:
+        List of workout dictionaries with activity, duration_hours, calories, day
+    """
+    token = st.session_state.get(f'{twin}_token')
+    if not token:
+        return []
+    
+    response = fetch_oura_data('/usercollection/workout', token, start_date, end_date)
+    if not response:
+        return []
+    
+    workouts = []
+    for workout in response.get('data', []):
+        activity = workout.get('activity', '').lower()
+        
+        # Filter out walking
+        if 'walking' in activity or 'walk' in activity:
+            continue
+        
+        # Calculate duration from start/end times
+        start_str = workout.get('start_datetime', '')
+        end_str = workout.get('end_datetime', '')
+        duration_hours = 0.0
+        
+        try:
+            if start_str and end_str:
+                # Parse ISO 8601 timestamps
+                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                duration_seconds = (end_dt - start_dt).total_seconds()
+                duration_hours = round(duration_seconds / 3600, 2)
+        except Exception:
+            pass
+        
+        workouts.append({
+            'day': workout.get('day', ''),
+            'activity': workout.get('activity', 'Unknown'),
+            'duration_hours': duration_hours,
+            'calories': workout.get('calories') or 0,
+            'intensity': workout.get('intensity', 'unknown')
+        })
+    
+    return workouts
+
+# =============================================================================
 # INTRADAY HEART RATE DATA (for Exercise Session Comparison)
 # =============================================================================
 
@@ -1818,6 +1876,110 @@ def render_kpi_metric(label: str, value_a: Any, value_b: Any, unit: str = "",
     """, unsafe_allow_html=True)
 
 # =============================================================================
+# WORKOUT COMPARISON
+# =============================================================================
+
+def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool = False):
+    """
+    Render a workout comparison grid for Twin A and Twin B.
+    Shows daily workouts with weekly totals.
+    
+    Args:
+        start_date: Start date for data range
+        end_date: End date for data range
+        dark_mode: Whether to use dark mode styling
+    """
+    st.markdown("### 🏋️ Workout Comparison")
+    st.caption("Excludes walking. Shows duration (hours) and calories per workout.")
+    
+    # Fetch workouts for both twins
+    workouts_a = fetch_workouts_for_twin('twin_a', start_date, end_date)
+    workouts_b = fetch_workouts_for_twin('twin_b', start_date, end_date)
+    
+    if not workouts_a and not workouts_b:
+        st.info("No workout data available for the selected date range. Connect both twins and ensure workouts are recorded.")
+        return
+    
+    # Convert to DataFrames
+    df_a = pd.DataFrame(workouts_a) if workouts_a else pd.DataFrame(columns=['day', 'activity', 'duration_hours', 'calories'])
+    df_b = pd.DataFrame(workouts_b) if workouts_b else pd.DataFrame(columns=['day', 'activity', 'duration_hours', 'calories'])
+    
+    # Aggregate by day (sum duration and calories, combine activities)
+    def aggregate_by_day(df):
+        if df.empty:
+            return pd.DataFrame(columns=['day', 'activities', 'total_hours', 'total_calories'])
+        grouped = df.groupby('day').agg({
+            'activity': lambda x: ', '.join(x.unique()),
+            'duration_hours': 'sum',
+            'calories': 'sum'
+        }).reset_index()
+        grouped.columns = ['day', 'activities', 'total_hours', 'total_calories']
+        return grouped
+    
+    agg_a = aggregate_by_day(df_a)
+    agg_b = aggregate_by_day(df_b)
+    
+    # Create a complete date range
+    all_dates = pd.date_range(start=start_date, end=end_date).strftime('%Y-%m-%d').tolist()
+    
+    # Build the display table
+    rows = []
+    for d in all_dates:
+        row_a = agg_a[agg_a['day'] == d]
+        row_b = agg_b[agg_b['day'] == d]
+        
+        a_activities = row_a['activities'].values[0] if not row_a.empty else '—'
+        a_hours = row_a['total_hours'].values[0] if not row_a.empty else 0
+        a_cals = row_a['total_calories'].values[0] if not row_a.empty else 0
+        
+        b_activities = row_b['activities'].values[0] if not row_b.empty else '—'
+        b_hours = row_b['total_hours'].values[0] if not row_b.empty else 0
+        b_cals = row_b['total_calories'].values[0] if not row_b.empty else 0
+        
+        rows.append({
+            'Date': d,
+            'Twin A Activity': a_activities,
+            'Twin A Hrs': round(a_hours, 2) if a_hours else '—',
+            'Twin A Cal': int(a_cals) if a_cals else '—',
+            'Twin B Activity': b_activities,
+            'Twin B Hrs': round(b_hours, 2) if b_hours else '—',
+            'Twin B Cal': int(b_cals) if b_cals else '—'
+        })
+    
+    # Calculate totals
+    total_a_hours = agg_a['total_hours'].sum() if not agg_a.empty else 0
+    total_a_cals = agg_a['total_calories'].sum() if not agg_a.empty else 0
+    total_b_hours = agg_b['total_hours'].sum() if not agg_b.empty else 0
+    total_b_cals = agg_b['total_calories'].sum() if not agg_b.empty else 0
+    
+    # Add totals row
+    rows.append({
+        'Date': '**TOTAL**',
+        'Twin A Activity': '',
+        'Twin A Hrs': f'**{round(total_a_hours, 2)}h**',
+        'Twin A Cal': f'**{int(total_a_cals)} cal**',
+        'Twin B Activity': '',
+        'Twin B Hrs': f'**{round(total_b_hours, 2)}h**',
+        'Twin B Cal': f'**{int(total_b_cals)} cal**'
+    })
+    
+    display_df = pd.DataFrame(rows)
+    
+    # Display as a table
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Summary metrics
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Twin A Total", f"{round(total_a_hours, 1)}h / {int(total_a_cals)} cal")
+    with col2:
+        st.metric("Twin B Total", f"{round(total_b_hours, 1)}h / {int(total_b_cals)} cal")
+
+# =============================================================================
 # MAIN APPLICATION
 # =============================================================================
 
@@ -2222,8 +2384,12 @@ def render_main_content():
             dark_mode=is_dark
         )
         st.plotly_chart(fig_temp, use_container_width=True)
-    
-
+        
+    # ==========================================================================
+    # WORKOUT COMPARISON
+    # ==========================================================================
+    st.divider()
+    render_workout_comparison(start_date, end_date, dark_mode=is_dark)
     
     # ==========================================================================
     # DATA TABLE (Expandable)
