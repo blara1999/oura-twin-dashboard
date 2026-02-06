@@ -44,7 +44,22 @@ except ImportError:
 
 def is_running_on_cloud() -> bool:
     """Check if running on Cloud Run (environment variables will be available)."""
-    return 'APP_USERNAME' in os.environ and 'APP_PASSWORD' in os.environ
+    # Check for any of the user credentials (4 users supported)
+    user_keys = ['chris', 'graham', 'dr_patryjca', 'dr_barney']
+    return any(key in os.environ for key in user_keys)
+
+def get_valid_users() -> dict:
+    """Get all valid username/password pairs from environment variables."""
+    valid_users = {}
+    # Support multiple users: username env var maps to password env var
+    user_keys = ['chris', 'graham', 'dr_patryjca', 'dr_barney']
+    for user in user_keys:
+        if user in os.environ:
+            valid_users[user] = os.environ[user]
+    # Also support legacy APP_USERNAME/APP_PASSWORD
+    if 'APP_USERNAME' in os.environ and 'APP_PASSWORD' in os.environ:
+        valid_users[os.environ['APP_USERNAME']] = os.environ['APP_PASSWORD']
+    return valid_users
 
 def has_oura_secrets() -> bool:
     """Check if Oura credentials are configured in environment variables."""
@@ -77,10 +92,8 @@ def check_password() -> bool:
             # Format: username:hash
             username, token_hash = auth_cookie.split(":", 1)
             
-            # Verify against env vars
-            valid_users = {}
-            if "APP_USERNAME" in os.environ and "APP_PASSWORD" in os.environ:
-                valid_users[os.environ["APP_USERNAME"]] = os.environ["APP_PASSWORD"]
+            # Verify against env vars (multiple users supported)
+            valid_users = get_valid_users()
             
             if username in valid_users:
                 stored_password = valid_users[username]
@@ -130,10 +143,8 @@ def check_password() -> bool:
         
         if submitted:
             try:
-                # Get credentials from environment variables
-                valid_users = {}
-                if "APP_USERNAME" in os.environ and "APP_PASSWORD" in os.environ:
-                    valid_users[os.environ["APP_USERNAME"]] = os.environ["APP_PASSWORD"]
+                # Get credentials from environment variables (multiple users)
+                valid_users = get_valid_users()
                 
                 # Debug: Show what we're checking
                 with st.expander("🔍 Debug Info", expanded=True):
