@@ -780,10 +780,45 @@ def inject_dark_mode_css():
         background-color: #1e293b !important;
     }
     
-    /* Dataframe/table */
+    /* Dataframe/table - comprehensive dark mode styling */
     [data-testid="stDataFrame"],
     .stDataFrame {
         background-color: #1e293b !important;
+    }
+    
+    /* Dataframe headers */
+    [data-testid="stDataFrame"] th,
+    .stDataFrame th,
+    [data-testid="stDataFrameResizable"] th {
+        background-color: #334155 !important;
+        color: #f1f5f9 !important;
+        border-color: #475569 !important;
+    }
+    
+    /* Dataframe cells */
+    [data-testid="stDataFrame"] td,
+    .stDataFrame td,
+    [data-testid="stDataFrameResizable"] td {
+        background-color: #1e293b !important;
+        color: #e2e8f0 !important;
+        border-color: #334155 !important;
+    }
+    
+    /* Alternating row colors */
+    [data-testid="stDataFrame"] tbody tr:nth-child(even) td,
+    .stDataFrame tbody tr:nth-child(even) td {
+        background-color: #263445 !important;
+    }
+    
+    /* Glide data grid (Streamlit's new dataframe) */
+    .dvn-scroller,
+    [data-testid="glideDataEditor"] {
+        background-color: #1e293b !important;
+    }
+    
+    [data-testid="glideDataEditor"] .cell-text,
+    .gdg-cell {
+        color: #e2e8f0 !important;
     }
     
     /* Toggle/checkbox labels */
@@ -1214,7 +1249,8 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
         'sleep': None,
         'daily_sleep': None,
         'cardiovascular_age': None,
-        'daily_readiness': None
+        'daily_readiness': None,
+        'resilience': None
     }
     
     # Fetch SpO2 data
@@ -1241,6 +1277,11 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
     readiness_response = fetch_oura_data('/usercollection/daily_readiness', token, start_date, end_date)
     if readiness_response:
         data['daily_readiness'] = readiness_response.get('data', [])
+    
+    # Fetch resilience data
+    resilience_response = fetch_oura_data('/usercollection/daily_resilience', token, start_date, end_date)
+    if resilience_response:
+        data['resilience'] = resilience_response.get('data', [])
     
     return data
 
@@ -1538,7 +1579,7 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
     
     # Collect all unique dates
     # Collect all unique dates
-    for key in ['daily_spo2', 'sleep', 'daily_sleep', 'cardiovascular_age', 'daily_readiness']:
+    for key in ['daily_spo2', 'sleep', 'daily_sleep', 'cardiovascular_age', 'daily_readiness', 'resilience']:
         if raw_data.get(key):
             for record in raw_data[key]:
                 all_dates.add(record.get('day'))
@@ -1672,6 +1713,25 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         )
     else:
         df['temperature_deviation'] = None
+    
+    # Process resilience data
+    if raw_data.get('resilience'):
+        resilience_df = pd.DataFrame(raw_data['resilience'])
+        resilience_df['day'] = pd.to_datetime(resilience_df['day'])
+        # Extract level as numeric (if available) or keep as-is
+        if 'level' in resilience_df.columns:
+            # Map levels to numeric: limited=1, adequate=2, solid=3, strong=4, exceptional=5
+            level_map = {'limited': 1, 'adequate': 2, 'solid': 3, 'strong': 4, 'exceptional': 5}
+            resilience_df['resilience_score'] = resilience_df['level'].map(level_map)
+        else:
+            resilience_df['resilience_score'] = None
+        df = df.merge(
+            resilience_df[['day', 'resilience_score']],
+            on='day',
+            how='left'
+        )
+    else:
+        df['resilience_score'] = None
     
     return df.sort_values('day')
 
@@ -2539,9 +2599,27 @@ def render_main_content():
         
         st.divider()
         
-        # EXERCISE SESSION COMPARISON
-        st.markdown("### 🏃 Exercise Session Comparison")
-        st.caption("Real-time heart rate: **Twin A** (IHT) vs **Twin B** (Regular Training)")
+        # TODAY'S ACTIVITY (with activity type tags)
+        today = date.today()
+        
+        # Fetch today's workouts to tag chart
+        workouts_a, _ = fetch_workouts_for_twin('twin_a', today, today) if twin_a_connected else ([], {})
+        workouts_b, _ = fetch_workouts_for_twin('twin_b', today, today) if twin_b_connected else ([], {})
+        
+        # Build activity tags
+        activities_a = list(set(w.get('activity', 'workout') for w in workouts_a)) if workouts_a else []
+        activities_b = list(set(w.get('activity', 'workout') for w in workouts_b)) if workouts_b else []
+        
+        # Format activity tags
+        tags_a = " ".join([f"🔵 {a.replace('_', ' ').title()}" for a in activities_a]) if activities_a else ""
+        tags_b = " ".join([f"🔴 {a.replace('_', ' ').title()}" for a in activities_b]) if activities_b else ""
+        activity_tags = f" — {tags_a} {tags_b}".strip() if (tags_a or tags_b) else ""
+        
+        st.markdown(f"### 🏃 Today's Activity ({today.strftime('%b %d')})")
+        if activity_tags:
+            st.caption(f"Detected activities: {activity_tags}")
+        else:
+            st.caption("Heart rate data: **Twin A** (🔵) vs **Twin B** (🔴)")
         
         exercise_hours = 16
         intraday_a = get_intraday_data_for_twin('twin_a', exercise_hours) if twin_a_connected else []
@@ -2676,6 +2754,31 @@ def render_main_content():
                 dark_mode=is_dark
             )
             st.plotly_chart(fig_temp, use_container_width=True)
+
+        # Row 4 - Cardiovascular Age and Resilience
+        col7, col8 = st.columns(2)
+
+        with col7:
+            st.write("**Cardiovascular Age** — Vascular health")
+            fig_cv = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='cardiovascular_age',
+                title='Cardiovascular Age',
+                y_axis_title='Age (years)',
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_cv, use_container_width=True)
+
+        with col8:
+            st.write("**Resilience** — Recovery capacity (1-5)")
+            fig_resilience = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='resilience_score',
+                title='Resilience Score',
+                y_axis_title='Score (1=Limited, 5=Exceptional)',
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_resilience, use_container_width=True)
     
     # ==========================================================================
     # TAB 3: WORKOUTS
