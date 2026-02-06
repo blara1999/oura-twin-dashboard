@@ -35,9 +35,26 @@ If the GitHub Action workaround is not reliable enough, here are the best low-co
 - **Cost:** $5/month for a "Basic" container.
 - **Why switch:** Industry standard infrastructure. Very reliable.
 
+### 5. Google Cloud Platform (Cloud Run)
+*Best if you already have a GCP account.*
+- **How it works:** You build a Docker container (using the `Dockerfile` I just added) and deploy it to Cloud Run.
+- **Cost:** Pay-per-use. It has a generous free tier (2 million requests/month), BUT to prevent "sleeping" (cold starts), you need minimum 1 instance active, which costs ~$6-10/month depending on region and cpu settings.
+    - *Note*: If you are okay with a few seconds of "cold start" delay when opening the app, it can be **nearly free**.
+- **Why switch:** Enterprise-grade scaling and security.
+
 ## How to Migrate (General Steps)
 
+### For Render/Railway/DigitalOcean:
 1.  **Sign up** for the chosen service.
 2.  **Connect GitHub**: Most allow you to authorize your GitHub account and select this repository (`oura-twin-dashboard`).
 3.  **Environment Variables**: Copy your secrets (like `oura_personal_access_token`) from Streamlit Cloud dashboard to the new service's "Environment Variables" settings.
 4.  **Deploy**: Push a commit or click "Deploy".
+
+### For Google Cloud Run:
+1.  **Install SDK**: Make sure you have the `gcloud` CLI installed.
+2.  **Deploy**: Run this command in your terminal:
+    ```bash
+    gcloud run deploy oura-twin-dashboard --source . --region us-central1 --allow-unauthenticated
+    ```
+    *(Note: You'll need to set environment variables via the Google Cloud Console or add flags like `--set-env-vars KEY=VALUE`)*
+
