@@ -43,6 +43,17 @@ def is_running_on_cloud() -> bool:
     except Exception:
         return False
 
+def has_oura_secrets() -> bool:
+    """Check if Oura credentials are configured in Streamlit secrets or env vars."""
+    # Check environment variables first (Cloud Run)
+    if 'OURA_CLIENT_ID' in os.environ:
+        return True
+    # Check Streamlit secrets (Streamlit Cloud)
+    try:
+        return hasattr(st, 'secrets') and 'oura' in st.secrets
+    except Exception:
+        return False
+
 def check_password() -> bool:
     """
     Returns True if the user has entered a correct password.
@@ -1838,8 +1849,8 @@ def render_sidebar():
         # Load saved credentials
         saved_creds = load_credentials()
         
-        # Only show config if credentials not loaded from secrets
-        if not (hasattr(st, 'secrets') and 'oura' in st.secrets):
+        # Only show config if credentials not loaded from secrets or env vars
+        if not has_oura_secrets():
             st.markdown("**API Credentials**")
             
             # Load saved credentials
