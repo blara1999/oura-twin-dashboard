@@ -32,27 +32,16 @@ from streamlit_cookies_controller import CookieController
 from pathlib import Path
 
 # =============================================================================
-# AUTHENTICATION (for Streamlit Cloud deployment)
+# AUTHENTICATION (for Cloud Run deployment)
 # =============================================================================
 
 def is_running_on_cloud() -> bool:
-    """Check if running on Streamlit Cloud (secrets will be available)."""
-    try:
-        # st.secrets is available on cloud or if local secrets.toml exists
-        return hasattr(st, 'secrets') and 'passwords' in st.secrets
-    except Exception:
-        return False
+    """Check if running on Cloud Run (environment variables will be available)."""
+    return 'APP_USERNAME' in os.environ and 'APP_PASSWORD' in os.environ
 
 def has_oura_secrets() -> bool:
-    """Check if Oura credentials are configured in Streamlit secrets or env vars."""
-    # Check environment variables first (Cloud Run)
-    if 'OURA_CLIENT_ID' in os.environ:
-        return True
-    # Check Streamlit secrets (Streamlit Cloud)
-    try:
-        return hasattr(st, 'secrets') and 'oura' in st.secrets
-    except Exception:
-        return False
+    """Check if Oura credentials are configured in environment variables."""
+    return 'OURA_CLIENT_ID' in os.environ
 
 def check_password() -> bool:
     """
@@ -81,11 +70,11 @@ def check_password() -> bool:
             # Format: username:hash
             username, token_hash = auth_cookie.split(":", 1)
             
-            valid_users = st.secrets.get("passwords", {}) if hasattr(st, "secrets") else {}
+            # Verify against env vars
+            valid_users = {}
             if "APP_USERNAME" in os.environ and "APP_PASSWORD" in os.environ:
                 valid_users[os.environ["APP_USERNAME"]] = os.environ["APP_PASSWORD"]
-
-            # Verify against secrets
+            
             if username in valid_users:
                 stored_password = valid_users[username]
                 # Reconstruct expected hash
@@ -128,8 +117,8 @@ def check_password() -> bool:
         
         if submitted:
             try:
-                # Combine secrets and env vars
-                valid_users = st.secrets.get("passwords", {}).copy() if hasattr(st, "secrets") else {}
+                # Get credentials from environment variables
+                valid_users = {}
                 if "APP_USERNAME" in os.environ and "APP_PASSWORD" in os.environ:
                     valid_users[os.environ["APP_USERNAME"]] = os.environ["APP_PASSWORD"]
                 
@@ -186,19 +175,8 @@ def save_credentials(client_id: str, client_secret: str, redirect_uri: str):
         st.warning(f"Could not save credentials: {e}")
 
 def load_credentials() -> Dict[str, str]:
-    """Load OAuth credentials from Streamlit secrets (cloud) or local config file."""
-    # First, try Streamlit secrets (for cloud deployment)
-    try:
-        if hasattr(st, 'secrets') and 'oura' in st.secrets:
-            return {
-                'client_id': st.secrets['oura'].get('client_id', ''),
-                'client_secret': st.secrets['oura'].get('client_secret', ''),
-                'redirect_uri': st.secrets['oura'].get('redirect_uri', 'http://localhost:8501')
-            }
-    except Exception:
-        pass
-        
-    # Second, check standard Environment Variables (Cloud Run style)
+    """Load OAuth credentials from environment variables or local config file."""
+    # First, check environment variables (Cloud Run)
     if 'OURA_CLIENT_ID' in os.environ:
         return {
             'client_id': os.environ.get('OURA_CLIENT_ID', ''),
@@ -206,7 +184,7 @@ def load_credentials() -> Dict[str, str]:
             'redirect_uri': os.environ.get('OURA_REDIRECT_URI', 'http://localhost:8501')
         }
     
-    # Fallback to local config file
+    # Fallback to local config file (for local development)
     try:
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE, 'r') as f:
