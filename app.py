@@ -486,10 +486,15 @@ st.markdown("""
         color: #92400e !important;
     }
     
-    /* Reduce padding */
+    /* Reduce top padding - minimize gap to title */
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 0.5rem !important;
         padding-bottom: 1rem;
+    }
+    
+    /* Hide top padding from Streamlit */
+    .stApp > header + div {
+        padding-top: 0 !important;
     }
     
     /* Metric card styling */
@@ -508,6 +513,63 @@ st.markdown("""
     .section-header {
         margin-top: 1.5rem;
         margin-bottom: 0.75rem;
+    }
+    
+    /* ===========================================
+       MOBILE & TABLET RESPONSIVE STYLES
+       =========================================== */
+    
+    /* Tablet (768px and below) */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        
+        .main-header {
+            font-size: 1.5rem !important;
+        }
+        
+        .expedition-context {
+            font-size: 0.8rem !important;
+        }
+        
+        /* Stack columns on tablet */
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+    }
+    
+    /* Mobile (480px and below) */
+    @media (max-width: 480px) {
+        .block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            padding-top: 0.25rem !important;
+        }
+        
+        .main-header {
+            font-size: 1.2rem !important;
+        }
+        
+        .expedition-context {
+            font-size: 0.75rem !important;
+        }
+        
+        /* Hide overflow on small screens */
+        .workout-table {
+            font-size: 0.7rem !important;
+        }
+        
+        /* Smaller metrics */
+        [data-testid="stMetric"] {
+            padding: 0.5rem !important;
+        }
+        
+        [data-testid="stMetricValue"] {
+            font-size: 1.2rem !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
