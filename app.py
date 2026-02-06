@@ -70,9 +70,13 @@ def check_password() -> bool:
             # Format: username:hash
             username, token_hash = auth_cookie.split(":", 1)
             
+            valid_users = st.secrets.get("passwords", {}) if hasattr(st, "secrets") else {}
+            if "APP_USERNAME" in os.environ and "APP_PASSWORD" in os.environ:
+                valid_users[os.environ["APP_USERNAME"]] = os.environ["APP_PASSWORD"]
+
             # Verify against secrets
-            if username in st.secrets["passwords"]:
-                stored_password = st.secrets["passwords"][username]
+            if username in valid_users:
+                stored_password = valid_users[username]
                 # Reconstruct expected hash
                 expected_hash = hashlib.sha256(f"{username}{stored_password}".encode()).hexdigest()
                 
@@ -112,20 +116,24 @@ def check_password() -> bool:
         submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
         
         if submitted:
-            try:
+                # Combine secrets and env vars
+                valid_users = st.secrets.get("passwords", {}).copy() if hasattr(st, "secrets") else {}
+                if "APP_USERNAME" in os.environ and "APP_PASSWORD" in os.environ:
+                    valid_users[os.environ["APP_USERNAME"]] = os.environ["APP_PASSWORD"]
+                
                 # Debug: Show what we're checking
                 with st.expander("🔍 Debug Info", expanded=True):
                     st.write(f"Username entered: '{username}'")
                     st.write(f"Password length: {len(password) if password else 0}")
-                    st.write(f"Available users: {list(st.secrets.get('passwords', {}).keys())}")
-                    if username in st.secrets.get("passwords", {}):
-                        stored = st.secrets["passwords"][username]
+                    st.write(f"Available users: {list(valid_users.keys())}")
+                    if username in valid_users:
+                        stored = valid_users[username]
                         st.write(f"Stored password length: {len(stored)}")
                         st.write(f"Passwords match: {password == stored}")
                     else:
-                        st.write(f"Username '{username}' not found in secrets")
+                        st.write(f"Username '{username}' not found")
                 
-                if username in st.secrets["passwords"] and password == st.secrets["passwords"][username]:
+                if username in valid_users and password == valid_users[username]:
                     st.session_state["authenticated"] = True
                     st.session_state["current_user"] = username
                     
@@ -177,6 +185,14 @@ def load_credentials() -> Dict[str, str]:
             }
     except Exception:
         pass
+        
+    # Second, check standard Environment Variables (Cloud Run style)
+    if 'OURA_CLIENT_ID' in os.environ:
+        return {
+            'client_id': os.environ.get('OURA_CLIENT_ID', ''),
+            'client_secret': os.environ.get('OURA_CLIENT_SECRET', ''),
+            'redirect_uri': os.environ.get('OURA_REDIRECT_URI', 'http://localhost:8501')
+        }
     
     # Fallback to local config file
     try:
