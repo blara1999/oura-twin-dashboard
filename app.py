@@ -2364,11 +2364,19 @@ def render_main_content():
         else:
             st.caption("**Twin B**: No data")
     
+    # Dark mode toggle in header area
+    col_spacer, col_dark = st.columns([5, 1])
+    with col_dark:
+        dark_mode = st.toggle("🌙", value=st.session_state.dark_mode, help="Dark mode")
+        if dark_mode != st.session_state.dark_mode:
+            st.session_state.dark_mode = dark_mode
+            st.rerun()
+    
     # ==========================================================================
     # TABBED LAYOUT
     # ==========================================================================
-    tab_overview, tab_trends, tab_workouts, tab_data = st.tabs([
-        "📊 Overview", "📈 Trends", "🏋️ Workouts", "📋 Data"
+    tab_overview, tab_trends, tab_workouts, tab_data, tab_settings = st.tabs([
+        "📊 Overview", "📈 Trends", "🏋️ Workouts", "📋 Data", "⚙️ Settings"
     ])
     
     # ==========================================================================
@@ -2576,6 +2584,120 @@ def render_main_content():
                 st.dataframe(display_df_b, use_container_width=True)
             else:
                 st.info("No data available for Twin B")
+    
+    # ==========================================================================
+    # TAB 5: SETTINGS
+    # ==========================================================================
+    with tab_settings:
+        st.markdown("### Settings")
+        
+        # Load saved credentials
+        saved_creds = load_credentials()
+        
+        # Twin Connections
+        col_twin_a, col_twin_b = st.columns(2)
+        
+        with col_twin_a:
+            st.markdown("**Twin A Connection**")
+            if twin_a_connected:
+                st.success("✅ Connected")
+                if st.button("Disconnect Twin A", key="disconnect_a_tab", use_container_width=True):
+                    st.session_state.twin_a_token = None
+                    st.session_state.twin_a_refresh_token = None
+                    remove_twin_tokens('twin_a')
+                    st.rerun()
+            else:
+                st.error("❌ Not Connected")
+                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
+                    auth_url = get_authorization_url('twin_a')
+                    st.link_button("Connect Twin A", auth_url, use_container_width=True)
+                else:
+                    st.caption("Configure API credentials below first")
+        
+        with col_twin_b:
+            st.markdown("**Twin B Connection**")
+            if twin_b_connected:
+                st.success("✅ Connected")
+                if st.button("Disconnect Twin B", key="disconnect_b_tab", use_container_width=True):
+                    st.session_state.twin_b_token = None
+                    st.session_state.twin_b_refresh_token = None
+                    remove_twin_tokens('twin_b')
+                    st.rerun()
+            else:
+                st.error("❌ Not Connected")
+                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
+                    auth_url = get_authorization_url('twin_b')
+                    st.link_button("Connect Twin B", auth_url, use_container_width=True)
+                else:
+                    st.caption("Configure API credentials below first")
+        
+        st.divider()
+        
+        # Date Range Selection
+        st.markdown("**Date Range**")
+        col_start, col_end = st.columns(2)
+        with col_start:
+            new_start = st.date_input(
+                "Start Date",
+                value=st.session_state.date_range[0],
+                max_value=date.today()
+            )
+        with col_end:
+            new_end = st.date_input(
+                "End Date",
+                value=st.session_state.date_range[1],
+                max_value=date.today()
+            )
+        
+        if new_start > new_end:
+            st.error("Start date must be before end date")
+        elif (new_start, new_end) != st.session_state.date_range:
+            st.session_state.date_range = (new_start, new_end)
+            st.rerun()
+        
+        # Quick date buttons
+        col_7d, col_14d, col_30d = st.columns(3)
+        with col_7d:
+            if st.button("Last 7 Days", use_container_width=True):
+                st.session_state.date_range = (date.today() - timedelta(days=7), date.today())
+                st.rerun()
+        with col_14d:
+            if st.button("Last 14 Days", use_container_width=True):
+                st.session_state.date_range = (date.today() - timedelta(days=14), date.today())
+                st.rerun()
+        with col_30d:
+            if st.button("Last 30 Days", use_container_width=True):
+                st.session_state.date_range = (date.today() - timedelta(days=30), date.today())
+                st.rerun()
+        
+        st.divider()
+        
+        # API Credentials (only show if not using env vars)
+        if not has_oura_secrets():
+            st.markdown("**API Credentials**")
+            with st.expander("Configure Oura API", expanded=not saved_creds.get('client_id')):
+                client_id = st.text_input("Client ID", value=saved_creds.get('client_id', ''), type="password")
+                client_secret = st.text_input("Client Secret", value=saved_creds.get('client_secret', ''), type="password")
+                redirect_uri = st.text_input("Redirect URI", value=saved_creds.get('redirect_uri', 'http://localhost:8501'))
+                
+                if st.button("Save Credentials", type="primary", use_container_width=True):
+                    if client_id and client_secret:
+                        save_credentials(client_id, client_secret, redirect_uri)
+                        st.session_state.client_id = client_id
+                        st.session_state.client_secret = client_secret
+                        st.session_state.redirect_uri = redirect_uri
+                        st.success("✅ Credentials saved!")
+                        st.rerun()
+                    else:
+                        st.error("Enter both Client ID and Client Secret")
+            
+            st.divider()
+        
+        # API Rate Limit Info
+        remaining = RATE_LIMIT_REQUESTS - st.session_state.request_count
+        st.markdown("**API Usage**")
+        st.progress(remaining / RATE_LIMIT_REQUESTS)
+        st.caption(f"{remaining:,} / {RATE_LIMIT_REQUESTS:,} requests remaining")
 
 def main():
     """Main application entry point."""
@@ -2586,13 +2708,10 @@ def main():
     # Handle OAuth callback if present
     handle_oauth_callback()
     
-    # Render sidebar
-    render_sidebar()
-    
     # Inject dark mode CSS if enabled
     inject_dark_mode_css()
     
-    # Render main content
+    # Render main content (includes all tabs)
     render_main_content()
     
     # Footer
