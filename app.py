@@ -1884,8 +1884,8 @@ def render_kpi_metric(label: str, value_a: Any, value_b: Any, unit: str = "",
 
 def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool = False):
     """
-    Render a workout comparison grid for Twin A and Twin B.
-    Uses weekly blocks (Mon-Sun) with transposed layout.
+    Render workout comparison as separate tables per week.
+    Each table has days as columns (Mon-Sun) and metrics as rows.
     
     Args:
         start_date: Start date for data range (used for API fetch)
@@ -1893,7 +1893,7 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
         dark_mode: Whether to use dark mode styling
     """
     st.markdown("### 🏋️ Weekly Workout Comparison")
-    st.caption("Excludes walking. Shows duration (hours) and calories per week.")
+    st.caption("Excludes walking. One table per week with daily breakdown.")
     
     # Week range selector
     col_start, col_end = st.columns(2)
@@ -1911,7 +1911,7 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             workout_start = workout_start - timedelta(days=days_since_monday)
     
     with col_end:
-        # Default end: Sunday March 8, 2026 (Sunday of week containing March 2)
+        # Default end: Sunday March 8, 2026 (5 weeks from Feb 3)
         default_end = date(2026, 3, 8)
         workout_end = st.date_input(
             "Last week ends (Sunday)",
@@ -1923,7 +1923,7 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
         if workout_end.weekday() != 6:
             workout_end = workout_end + timedelta(days=days_until_sunday)
     
-    # Fetch workouts for both twins (returns tuple with debug info)
+    # Fetch workouts for both twins
     workouts_a, _ = fetch_workouts_for_twin('twin_a', workout_start, workout_end)
     workouts_b, _ = fetch_workouts_for_twin('twin_b', workout_start, workout_end)
     
@@ -1941,97 +1941,100 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
     if not df_b.empty:
         df_b['day'] = pd.to_datetime(df_b['day']).dt.date
     
-    # Generate week labels
+    # Generate weeks
     weeks = []
     current_monday = workout_start
     while current_monday <= workout_end:
         current_sunday = current_monday + timedelta(days=6)
-        week_label = f"{current_monday.strftime('%b %d')} - {current_sunday.strftime('%b %d')}"
         weeks.append({
-            'label': week_label,
+            'label': f"Week of {current_monday.strftime('%b %d')}",
             'start': current_monday,
-            'end': current_sunday
+            'end': current_sunday,
+            'days': [current_monday + timedelta(days=i) for i in range(7)]
         })
         current_monday += timedelta(days=7)
     
-    # Aggregate by week
-    def get_week_totals(df, week_start, week_end):
+    # Day column headers
+    day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    
+    # Helper to get day data
+    def get_day_data(df, day_date):
         if df.empty:
-            return {'hours': 0, 'calories': 0, 'activities': []}
-        week_data = df[(df['day'] >= week_start) & (df['day'] <= week_end)]
-        if week_data.empty:
-            return {'hours': 0, 'calories': 0, 'activities': []}
+            return {'hours': 0, 'calories': 0, 'activity': '—'}
+        day_data = df[df['day'] == day_date]
+        if day_data.empty:
+            return {'hours': 0, 'calories': 0, 'activity': '—'}
         return {
-            'hours': week_data['duration_hours'].sum(),
-            'calories': week_data['calories'].sum(),
-            'activities': list(week_data['activity'].unique())
+            'hours': round(day_data['duration_hours'].sum(), 1),
+            'calories': int(day_data['calories'].sum()),
+            'activity': ', '.join(day_data['activity'].unique())
         }
     
-    # Build transposed data: rows are metrics, columns are weeks
-    # Format: | Metric | Week 1 | Week 2 | ... | Total |
+    # Track grand totals
+    grand_total_a_hours = 0
+    grand_total_a_cals = 0
+    grand_total_b_hours = 0
+    grand_total_b_cals = 0
     
-    twin_a_hours = []
-    twin_a_cals = []
-    twin_b_hours = []
-    twin_b_cals = []
-    
+    # Render one table per week
     for week in weeks:
-        totals_a = get_week_totals(df_a, week['start'], week['end'])
-        totals_b = get_week_totals(df_b, week['start'], week['end'])
+        st.markdown(f"**{week['label']}**")
         
-        twin_a_hours.append(round(totals_a['hours'], 1))
-        twin_a_cals.append(int(totals_a['calories']))
-        twin_b_hours.append(round(totals_b['hours'], 1))
-        twin_b_cals.append(int(totals_b['calories']))
-    
-    # Calculate grand totals
-    total_a_hours = sum(twin_a_hours)
-    total_a_cals = sum(twin_a_cals)
-    total_b_hours = sum(twin_b_hours)
-    total_b_cals = sum(twin_b_cals)
-    
-    # Build transposed table
-    week_labels = [w['label'] for w in weeks]
-    
-    data = {
-        'Metric': ['Twin A Hours', 'Twin A Calories', 'Twin B Hours', 'Twin B Calories']
-    }
-    
-    for i, label in enumerate(week_labels):
-        data[label] = [
-            f"{twin_a_hours[i]}h" if twin_a_hours[i] else "—",
-            f"{twin_a_cals[i]}" if twin_a_cals[i] else "—",
-            f"{twin_b_hours[i]}h" if twin_b_hours[i] else "—",
-            f"{twin_b_cals[i]}" if twin_b_cals[i] else "—"
+        # Build table data
+        twin_a_hours = []
+        twin_a_cals = []
+        twin_b_hours = []
+        twin_b_cals = []
+        
+        for day_date in week['days']:
+            data_a = get_day_data(df_a, day_date)
+            data_b = get_day_data(df_b, day_date)
+            
+            twin_a_hours.append(f"{data_a['hours']}h" if data_a['hours'] else "—")
+            twin_a_cals.append(str(data_a['calories']) if data_a['calories'] else "—")
+            twin_b_hours.append(f"{data_b['hours']}h" if data_b['hours'] else "—")
+            twin_b_cals.append(str(data_b['calories']) if data_b['calories'] else "—")
+            
+            grand_total_a_hours += data_a['hours']
+            grand_total_a_cals += data_a['calories']
+            grand_total_b_hours += data_b['hours']
+            grand_total_b_cals += data_b['calories']
+        
+        # Calculate week totals
+        week_a_hours = sum(float(h.replace('h', '')) if h != '—' else 0 for h in twin_a_hours)
+        week_a_cals = sum(int(c) if c != '—' else 0 for c in twin_a_cals)
+        week_b_hours = sum(float(h.replace('h', '')) if h != '—' else 0 for h in twin_b_hours)
+        week_b_cals = sum(int(c) if c != '—' else 0 for c in twin_b_cals)
+        
+        # Build DataFrame
+        data = {
+            'Metric': ['Twin A Hours', 'Twin A Cal', 'Twin B Hours', 'Twin B Cal']
+        }
+        for i, day_name in enumerate(day_names):
+            data[day_name] = [twin_a_hours[i], twin_a_cals[i], twin_b_hours[i], twin_b_cals[i]]
+        
+        data['Total'] = [
+            f"{round(week_a_hours, 1)}h",
+            str(int(week_a_cals)),
+            f"{round(week_b_hours, 1)}h",
+            str(int(week_b_cals))
         ]
+        
+        week_df = pd.DataFrame(data)
+        st.dataframe(week_df, use_container_width=True, hide_index=True)
+        st.markdown("")  # Spacing
     
-    # Add totals column
-    data['TOTAL'] = [
-        f"**{round(total_a_hours, 1)}h**",
-        f"**{int(total_a_cals)}**",
-        f"**{round(total_b_hours, 1)}h**",
-        f"**{int(total_b_cals)}**"
-    ]
-    
-    display_df = pd.DataFrame(data)
-    
-    # Display as a table
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # Summary comparison
+    # Grand total summary
     st.markdown("---")
+    st.markdown("**Overall Totals**")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Twin A Total", f"{round(total_a_hours, 1)}h", f"{int(total_a_cals)} cal")
+        st.metric("Twin A", f"{round(grand_total_a_hours, 1)}h", f"{int(grand_total_a_cals)} cal")
     with col2:
-        st.metric("Twin B Total", f"{round(total_b_hours, 1)}h", f"{int(total_b_cals)} cal")
+        st.metric("Twin B", f"{round(grand_total_b_hours, 1)}h", f"{int(grand_total_b_cals)} cal")
     with col3:
-        diff_hours = round(total_a_hours - total_b_hours, 1)
-        diff_cals = int(total_a_cals - total_b_cals)
+        diff_hours = round(grand_total_a_hours - grand_total_b_hours, 1)
+        diff_cals = int(grand_total_a_cals - grand_total_b_cals)
         st.metric("Difference (A - B)", 
                   f"{'+' if diff_hours >= 0 else ''}{diff_hours}h",
                   f"{'+' if diff_cals >= 0 else ''}{diff_cals} cal")
