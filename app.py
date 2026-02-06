@@ -276,7 +276,7 @@ OURA_API_BASE = "https://api.ouraring.com/v2"
 # OAuth2 Scopes needed for our metrics
 # See: https://cloud.ouraring.com/docs/authentication#scopes
 # Available: email, personal, daily, heartrate, workout, tag, session, spo2
-OURA_SCOPES = "email personal daily heartrate spo2"
+OURA_SCOPES = "email personal daily heartrate spo2 workout"
 
 # Rate limiting: 5000 requests per 5 minutes
 RATE_LIMIT_REQUESTS = 5000
