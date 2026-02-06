@@ -16,6 +16,9 @@ plotly>=5.18.0
 # HTTP requests for API calls
 requests>=2.31.0
 
+# Cloud storage for token persistence on Cloud Run
+google-cloud-storage>=2.14.0
+
 # For secure random state generation (built-in, but listed for clarity)
 # secrets (built-in Python 3.6+)
 

@@ -96,8 +96,25 @@ oura-twin-dashboard/
 
 ## Security & Privacy
 - **Authentication**: Requires login to access any data (powered by Streamlit Secrets).
-- **Token Storage**: OAuth tokens are stored in session state and survive refresh but are not persisted permanently on the server disk for security.
+- **Token Storage**: OAuth tokens persist across Cloud Run deployments using Google Cloud Storage (when configured) or local files for development.
 - **Data Privacy**: No data is saved to a database; it is fetched live from Oura API on demand.
+
+## Cloud Run Token Persistence (GCS)
+
+To persist OAuth tokens across Cloud Run deployments (so you don't need to reconnect Twin A/B after each deploy):
+
+### 1. Create a GCS Bucket
+```bash
+gcloud storage buckets create gs://YOUR_BUCKET_NAME --location=us-central1
+```
+
+### 2. Add Environment Variable to Cloud Run
+Add this environment variable to your Cloud Run service:
+```
+GCS_BUCKET_NAME=YOUR_BUCKET_NAME
+```
+
+> **Note**: Cloud Run's default service account already has read/write access to GCS buckets in the same GCP project. No additional IAM changes needed.
 
 ## Troubleshooting
 

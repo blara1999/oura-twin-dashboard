@@ -31,6 +31,13 @@ import hashlib
 from streamlit_cookies_controller import CookieController
 from pathlib import Path
 
+# Google Cloud Storage for token persistence on Cloud Run
+try:
+    from google.cloud import storage as gcs_storage
+    GCS_AVAILABLE = True
+except ImportError:
+    GCS_AVAILABLE = False
+
 # =============================================================================
 # AUTHENTICATION (for Cloud Run deployment)
 # =============================================================================
@@ -202,45 +209,111 @@ def clear_credentials():
         pass
 
 # =============================================================================
-# TOKEN PERSISTENCE (survives OAuth redirects)
+# TOKEN PERSISTENCE (survives OAuth redirects AND Cloud Run deployments)
 # =============================================================================
 
 TOKEN_FILE = Path.home() / ".oura_twin_dashboard_tokens.json"
+GCS_TOKEN_BLOB = "oura_twin_tokens.json"
 
-def save_tokens(tokens: Dict[str, Any]):
-    """Save access tokens to a local config file."""
+def is_gcs_enabled() -> bool:
+    """Check if GCS storage is configured for Cloud Run."""
+    return GCS_AVAILABLE and 'GCS_BUCKET_NAME' in os.environ
+
+def _get_gcs_bucket():
+    """Get GCS bucket for token storage."""
+    client = gcs_storage.Client()
+    return client.bucket(os.environ['GCS_BUCKET_NAME'])
+
+def _save_tokens_gcs(tokens: Dict[str, Any]):
+    """Save tokens to GCS bucket."""
     try:
-        # Load existing tokens first to preserve other twin's data
-        existing = load_tokens()
+        bucket = _get_gcs_bucket()
+        blob = bucket.blob(GCS_TOKEN_BLOB)
+        
+        # Load existing tokens first
+        existing = _load_tokens_gcs()
         existing.update(tokens)
         
-        with open(TOKEN_FILE, 'w') as f:
-            json.dump(existing, f)
+        blob.upload_from_string(
+            json.dumps(existing),
+            content_type='application/json'
+        )
     except Exception as e:
-        st.warning(f"Could not save tokens: {e}")
+        st.warning(f"Could not save tokens to GCS: {e}")
 
-def remove_twin_tokens(twin: str):
-    """Remove tokens for a specific twin."""
+def _load_tokens_gcs() -> Dict[str, Any]:
+    """Load tokens from GCS bucket."""
     try:
-        tokens = load_tokens()
+        bucket = _get_gcs_bucket()
+        blob = bucket.blob(GCS_TOKEN_BLOB)
+        
+        if blob.exists():
+            content = blob.download_as_string()
+            return json.loads(content)
+    except Exception:
+        pass
+    return {}
+
+def _remove_twin_tokens_gcs(twin: str):
+    """Remove tokens for a specific twin from GCS."""
+    try:
+        tokens = _load_tokens_gcs()
         keys_to_remove = [k for k in tokens.keys() if k.startswith(f"{twin}_")]
         for k in keys_to_remove:
             tokens.pop(k, None)
         
-        with open(TOKEN_FILE, 'w') as f:
-            json.dump(tokens, f)
+        bucket = _get_gcs_bucket()
+        blob = bucket.blob(GCS_TOKEN_BLOB)
+        blob.upload_from_string(
+            json.dumps(tokens),
+            content_type='application/json'
+        )
     except Exception:
         pass
 
+def save_tokens(tokens: Dict[str, Any]):
+    """Save access tokens (to GCS on Cloud Run, local file for development)."""
+    if is_gcs_enabled():
+        _save_tokens_gcs(tokens)
+    else:
+        # Local file storage for development
+        try:
+            existing = load_tokens()
+            existing.update(tokens)
+            
+            with open(TOKEN_FILE, 'w') as f:
+                json.dump(existing, f)
+        except Exception as e:
+            st.warning(f"Could not save tokens: {e}")
+
+def remove_twin_tokens(twin: str):
+    """Remove tokens for a specific twin."""
+    if is_gcs_enabled():
+        _remove_twin_tokens_gcs(twin)
+    else:
+        try:
+            tokens = load_tokens()
+            keys_to_remove = [k for k in tokens.keys() if k.startswith(f"{twin}_")]
+            for k in keys_to_remove:
+                tokens.pop(k, None)
+            
+            with open(TOKEN_FILE, 'w') as f:
+                json.dump(tokens, f)
+        except Exception:
+            pass
+
 def load_tokens() -> Dict[str, Any]:
-    """Load access tokens from local config file."""
-    try:
-        if TOKEN_FILE.exists():
-            with open(TOKEN_FILE, 'r') as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {}
+    """Load access tokens (from GCS on Cloud Run, local file for development)."""
+    if is_gcs_enabled():
+        return _load_tokens_gcs()
+    else:
+        try:
+            if TOKEN_FILE.exists():
+                with open(TOKEN_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}
 
 # =============================================================================
 # CONFIGURATION
@@ -2235,9 +2308,9 @@ def render_sidebar():
         st.caption("v2.0 - For Dr. Patrycja")
 
 def render_main_content():
-    """Render the main dashboard content."""
+    """Render the main dashboard content with tabbed layout."""
     
-    # Header
+    # Header (always visible)
     st.markdown('<div class="main-header">Twin Physiology Monitor</div>', unsafe_allow_html=True)
     st.markdown('<div class="expedition-context">High-Altitude Expedition • Biometric Monitoring Dashboard</div>', unsafe_allow_html=True)
     
@@ -2259,8 +2332,11 @@ def render_main_content():
     metrics_a = get_latest_metrics(df_a)
     metrics_b = get_latest_metrics(df_b)
     
+    # Get dark mode state
+    is_dark = st.session_state.get('dark_mode', False)
+    
     # ==========================================================================
-    # STATUS SECTION - Compact
+    # STATUS SECTION - Always visible above tabs
     # ==========================================================================
     col_status1, col_status2 = st.columns(2)
     with col_status1:
@@ -2281,229 +2357,213 @@ def render_main_content():
         else:
             st.caption("**Twin B**: No data")
     
-    st.divider()
+    # ==========================================================================
+    # TABBED LAYOUT
+    # ==========================================================================
+    tab_overview, tab_trends, tab_workouts, tab_data = st.tabs([
+        "📊 Overview", "📈 Trends", "🏋️ Workouts", "📋 Data"
+    ])
     
     # ==========================================================================
-    # EXERCISE SESSION COMPARISON (IHT Study - Intraday Heart Rate)
+    # TAB 1: OVERVIEW (KPIs + Exercise Session)
     # ==========================================================================
-    st.markdown("### 🏃 Exercise Session Comparison")
-    st.caption("Real-time heart rate monitoring: **Twin A** (IHT - Intermittent Hypoxic Training) vs **Twin B** (Regular Training)")
-    
-    # Timeframe selector (Removed - now fixed 5am-9pm)
-    exercise_hours = 16  # Fetch enough data to cover roughly 5am to 9pm depending on fetch time
-    
-    # Fetch intraday data from API
-    intraday_a = get_intraday_data_for_twin('twin_a', exercise_hours) if twin_a_connected else []
-    intraday_b = get_intraday_data_for_twin('twin_b', exercise_hours) if twin_b_connected else []
-    
-    # Get dark mode state
-    is_dark = st.session_state.get('dark_mode', False)
-    
-    # Create and display the chart
-    fig_exercise = create_intraday_comparison_chart(intraday_a, intraday_b, dark_mode=is_dark)
-    st.plotly_chart(fig_exercise, use_container_width=True)
-    
-    # Show quick stats
-    if intraday_a or intraday_b:
-        ex_stats_col1, ex_stats_col2, ex_stats_col3, ex_stats_col4 = st.columns(4)
+    with tab_overview:
+        # Check for critical SpO2 levels
+        critical_spo2_a = metrics_a['spo2'] is not None and metrics_a['spo2'] < 90
+        critical_spo2_b = metrics_b['spo2'] is not None and metrics_b['spo2'] < 90
         
-        with ex_stats_col1:
-            if intraday_a:
-                max_hr_a = max(d['bpm'] for d in intraday_a)
-                st.metric("Twin A Peak HR", f"{max_hr_a} bpm")
-            else:
-                st.metric("Twin A Peak HR", "—")
+        if critical_spo2_a or critical_spo2_b:
+            st.markdown("""
+            <div class="altitude-warning">
+                <strong>ALERT:</strong> SpO2 below 90% detected. Consider supplemental oxygen or descent.
+            </div>
+            """, unsafe_allow_html=True)
         
-        with ex_stats_col2:
-            if intraday_b:
-                max_hr_b = max(d['bpm'] for d in intraday_b)
-                st.metric("Twin B Peak HR", f"{max_hr_b} bpm")
-            else:
-                st.metric("Twin B Peak HR", "—")
+        # KPI METRICS (Latest Readings)
+        st.markdown("### Latest Readings")
+        c1, c2, c3, c4, c5 = st.columns(5)
         
-        with ex_stats_col3:
-            if intraday_a:
-                avg_hr_a = int(sum(d['bpm'] for d in intraday_a) / len(intraday_a))
-                st.metric("Twin A Avg HR", f"{avg_hr_a} bpm")
-            else:
-                st.metric("Twin A Avg HR", "—")
+        with c1:
+            st.write("**SpO2 %**")
+            render_kpi_metric("SPO2", metrics_a['spo2'], metrics_b['spo2'], "%", warning_threshold=90, warning_direction="below")
         
-        with ex_stats_col4:
-            if intraday_b:
-                avg_hr_b = int(sum(d['bpm'] for d in intraday_b) / len(intraday_b))
-                st.metric("Twin B Avg HR", f"{avg_hr_b} bpm")
-            else:
-                st.metric("Twin B Avg HR", "—")
-    
-    if not intraday_a and not intraday_b:
-        st.caption("💡 *Connect Oura accounts to see intraday heart rate data.*")
-    
-    st.divider()
+        with c2:
+            st.write("**Resting HR**")
+            render_kpi_metric("RHR", metrics_a['rhr'], metrics_b['rhr'], " bpm")
+        
+        with c3:
+            st.write("**HRV**")
+            render_kpi_metric("HRV", metrics_a['hrv'], metrics_b['hrv'], " ms")
+        
+        with c4:
+            st.write("**Resp Rate**")
+            render_kpi_metric("RESP", metrics_a['respiratory_rate'], metrics_b['respiratory_rate'], "")
+        
+        with c5:
+            st.write("**Sleep**")
+            render_kpi_metric("SCORE", metrics_a['sleep_score'], metrics_b['sleep_score'], "")
+        
+        st.divider()
+        
+        # EXERCISE SESSION COMPARISON
+        st.markdown("### 🏃 Exercise Session Comparison")
+        st.caption("Real-time heart rate: **Twin A** (IHT) vs **Twin B** (Regular Training)")
+        
+        exercise_hours = 16
+        intraday_a = get_intraday_data_for_twin('twin_a', exercise_hours) if twin_a_connected else []
+        intraday_b = get_intraday_data_for_twin('twin_b', exercise_hours) if twin_b_connected else []
+        
+        fig_exercise = create_intraday_comparison_chart(intraday_a, intraday_b, dark_mode=is_dark)
+        st.plotly_chart(fig_exercise, use_container_width=True)
+        
+        # Quick stats
+        if intraday_a or intraday_b:
+            ex_stats_col1, ex_stats_col2, ex_stats_col3, ex_stats_col4 = st.columns(4)
+            
+            with ex_stats_col1:
+                if intraday_a:
+                    max_hr_a = max(d['bpm'] for d in intraday_a)
+                    st.metric("Twin A Peak HR", f"{max_hr_a} bpm")
+                else:
+                    st.metric("Twin A Peak HR", "—")
+            
+            with ex_stats_col2:
+                if intraday_b:
+                    max_hr_b = max(d['bpm'] for d in intraday_b)
+                    st.metric("Twin B Peak HR", f"{max_hr_b} bpm")
+                else:
+                    st.metric("Twin B Peak HR", "—")
+            
+            with ex_stats_col3:
+                if intraday_a:
+                    avg_hr_a = int(sum(d['bpm'] for d in intraday_a) / len(intraday_a))
+                    st.metric("Twin A Avg HR", f"{avg_hr_a} bpm")
+                else:
+                    st.metric("Twin A Avg HR", "—")
+            
+            with ex_stats_col4:
+                if intraday_b:
+                    avg_hr_b = int(sum(d['bpm'] for d in intraday_b) / len(intraday_b))
+                    st.metric("Twin B Avg HR", f"{avg_hr_b} bpm")
+                else:
+                    st.metric("Twin B Avg HR", "—")
+        
+        if not intraday_a and not intraday_b:
+            st.caption("💡 *Connect Oura accounts to see intraday heart rate data.*")
     
     # ==========================================================================
-    # KPI METRICS SECTION (Doctor's Heads-Up Display)
+    # TAB 2: TRENDS (6 historical charts)
     # ==========================================================================
-    st.markdown("### Latest Readings")
-    
-    # Check for critical SpO2 levels
-    critical_spo2_a = metrics_a['spo2'] is not None and metrics_a['spo2'] < 90
-    critical_spo2_b = metrics_b['spo2'] is not None and metrics_b['spo2'] < 90
-    
-    if critical_spo2_a or critical_spo2_b:
-        st.markdown("""
-        <div class="altitude-warning">
-            <strong>ALERT:</strong> SpO2 below 90% detected. Consider supplemental oxygen or descent.
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # All KPIs in a single row using 5 columns
-    c1, c2, c3, c4, c5 = st.columns(5)
-    
-    with c1:
-        st.write("**SpO2 %**")
-        render_kpi_metric("SPO2", metrics_a['spo2'], metrics_b['spo2'], "%", warning_threshold=90, warning_direction="below")
-    
-    with c2:
-        st.write("**Resting HR**")
-        render_kpi_metric("RHR", metrics_a['rhr'], metrics_b['rhr'], " bpm")
-    
-    with c3:
-        st.write("**HRV**")
-        render_kpi_metric("HRV", metrics_a['hrv'], metrics_b['hrv'], " ms")
-    
-    with c4:
-        st.write("**Resp Rate**")
-        render_kpi_metric("RESP", metrics_a['respiratory_rate'], metrics_b['respiratory_rate'], "")
-    
-    with c5:
-        st.write("**Sleep**")
-        render_kpi_metric("SCORE", metrics_a['sleep_score'], metrics_b['sleep_score'], "")
-    
-    st.divider()
-    
-    # ==========================================================================
-    # VISUALIZATION SECTION
-    # ==========================================================================
-    st.markdown("### Trend Analysis")
-    
-    # Info about data availability
-    # Info about data availability
-    with st.expander("About Data Availability", expanded=False):
+    with tab_trends:
+        st.markdown("### Trend Analysis")
+        
+        with st.expander("About Data Availability", expanded=False):
             st.markdown("""
             **Why might some metrics show "No Data"?**
             - **SpO2**: Requires SpO2 monitoring enabled in Oura app settings
             - **Cardiovascular Age**: Requires consistent ring wear over time
             - **Sleep data**: User must sync their ring with the Oura mobile app
             """)
-    
-    # Create layout for charts - Row 1
-    col1, col2 = st.columns(2)
-    
-    # Get dark mode state
-    is_dark = st.session_state.get('dark_mode', False)
-
-    with col1:
-        # Chart 1: Nocturnal SpO2
-        st.write("**Nocturnal SpO2** — Critical for altitude")
-        fig_spo2 = create_comparative_line_chart(
-            df_a, df_b,
-            y_column='spo2',
-            title='SpO2 %',
-            y_axis_title='SpO2 (%)',
-            show_reference_line=(90, '90% threshold'),
-            dark_mode=is_dark
-        )
-        st.plotly_chart(fig_spo2, use_container_width=True)
-    
-    with col2:
-        # Chart 2: Resting Heart Rate (New separate chart)
-        st.write("**Resting Heart Rate** — Altitude response")
-        fig_rhr = create_comparative_line_chart(
-            df_a, df_b,
-            y_column='lowest_heart_rate',
-            title='Resting Heart Rate (bpm)',
-            y_axis_title='RHR (bpm)',
-            dark_mode=is_dark
-        )
-        st.plotly_chart(fig_rhr, use_container_width=True)
-    
-    # Row 2
-    col3, col4 = st.columns(2)
-    
-    with col3:
-        # Chart 3: HRV Trends
-        st.write("**Heart Rate Variability** — Stress indicator")
-        fig_hrv = create_comparative_line_chart(
-            df_a, df_b,
-            y_column='average_hrv',
-            title='HRV (ms)',
-            y_axis_title='HRV (ms)',
-            dark_mode=is_dark
-        )
-        st.plotly_chart(fig_hrv, use_container_width=True)
-    
-    with col4:
-        # Chart 4: Respiratory Rate (New separate chart)
-        st.write("**Respiratory Rate** — Hypoxic response")
-        fig_resp = create_comparative_line_chart(
-            df_a, df_b,
-            y_column='average_breath',
-            title='Respiratory Rate (br/min)',
-            y_axis_title='Resp (br/min)',
-            dark_mode=is_dark
-        )
-        st.plotly_chart(fig_resp, use_container_width=True)
-
-    # Row 3 (New Metrics)
-    col5, col6 = st.columns(2)
-
-    with col5:
-        # Chart 5: Sleep Score
-        st.write("**Sleep Score** — Recovery quality")
-        fig_sleep = create_comparative_line_chart(
-            df_a, df_b,
-            y_column='sleep_score',
-            title='Sleep Score',
-            y_axis_title='Score (0-100)',
-            show_reference_line=(85, 'Good'),
-            dark_mode=is_dark
-        )
-        st.plotly_chart(fig_sleep, use_container_width=True)
-
-    with col6:
-        # Chart 6: Skin Temperature
-        st.write("**Skin Temperature Deviation** — Illness indicator")
-        fig_temp = create_comparative_line_chart(
-            df_a, df_b,
-            y_column='temperature_deviation',
-            title='Skin Temp Deviation (°C)',
-            y_axis_title='Deviation (°C)',
-            show_reference_line=(0, 'Baseline'),
-            dark_mode=is_dark
-        )
-        st.plotly_chart(fig_temp, use_container_width=True)
         
-    # ==========================================================================
-    # WORKOUT COMPARISON
-    # ==========================================================================
-    st.divider()
-    render_workout_comparison(start_date, end_date, dark_mode=is_dark)
+        # Row 1
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Nocturnal SpO2** — Critical for altitude")
+            fig_spo2 = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='spo2',
+                title='SpO2 %',
+                y_axis_title='SpO2 (%)',
+                show_reference_line=(90, '90% threshold'),
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_spo2, use_container_width=True)
+        
+        with col2:
+            st.write("**Resting Heart Rate** — Altitude response")
+            fig_rhr = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='lowest_heart_rate',
+                title='Resting Heart Rate (bpm)',
+                y_axis_title='RHR (bpm)',
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_rhr, use_container_width=True)
+        
+        # Row 2
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            st.write("**Heart Rate Variability** — Stress indicator")
+            fig_hrv = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='average_hrv',
+                title='HRV (ms)',
+                y_axis_title='HRV (ms)',
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_hrv, use_container_width=True)
+        
+        with col4:
+            st.write("**Respiratory Rate** — Hypoxic response")
+            fig_resp = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='average_breath',
+                title='Respiratory Rate (br/min)',
+                y_axis_title='Resp (br/min)',
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_resp, use_container_width=True)
+
+        # Row 3
+        col5, col6 = st.columns(2)
+
+        with col5:
+            st.write("**Sleep Score** — Recovery quality")
+            fig_sleep = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='sleep_score',
+                title='Sleep Score',
+                y_axis_title='Score (0-100)',
+                show_reference_line=(85, 'Good'),
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_sleep, use_container_width=True)
+
+        with col6:
+            st.write("**Skin Temperature Deviation** — Illness indicator")
+            fig_temp = create_comparative_line_chart(
+                df_a, df_b,
+                y_column='temperature_deviation',
+                title='Skin Temp Deviation (°C)',
+                y_axis_title='Deviation (°C)',
+                show_reference_line=(0, 'Baseline'),
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_temp, use_container_width=True)
     
     # ==========================================================================
-    # DATA TABLE (Expandable)
+    # TAB 3: WORKOUTS
     # ==========================================================================
-    with st.expander("View Raw Data Tables"):
-        tab1, tab2 = st.tabs(["Twin A Data", "Twin B Data"])
+    with tab_workouts:
+        render_workout_comparison(start_date, end_date, dark_mode=is_dark)
+    
+    # ==========================================================================
+    # TAB 4: RAW DATA
+    # ==========================================================================
+    with tab_data:
+        st.markdown("### Raw Data Tables")
+        data_tab1, data_tab2 = st.tabs(["Twin A Data", "Twin B Data"])
         
-        with tab1:
+        with data_tab1:
             if not df_a.empty:
-                # Create a copy and fill NaN for display
                 display_df_a = df_a.copy()
                 st.dataframe(display_df_a, use_container_width=True)
             else:
                 st.info("No data available for Twin A")
         
-        with tab2:
+        with data_tab2:
             if not df_b.empty:
                 display_df_b = df_b.copy()
                 st.dataframe(display_df_b, use_container_width=True)
