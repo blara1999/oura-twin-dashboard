@@ -2007,10 +2007,12 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
         # Build styled HTML table
         html = f'''
         <style>
-            .workout-table {{ width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 0.85rem; }}
-            .workout-table th {{ background-color: {header_bg}; padding: 8px; text-align: center; border: 1px solid #e2e8f0; font-weight: 600; }}
-            .workout-table td {{ padding: 6px 8px; text-align: center; border: 1px solid #e2e8f0; }}
-            .workout-table .metric-label {{ text-align: left; font-weight: 500; width: 120px; }}
+            .workout-table {{ width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 0.85rem; table-layout: fixed; }}
+            .workout-table th {{ background-color: {header_bg}; padding: 8px; text-align: center; border: 1px solid #e2e8f0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+            .workout-table th:first-child {{ width: 140px; }}
+            .workout-table th:last-child {{ width: 60px; }}
+            .workout-table td {{ padding: 6px 8px; text-align: center; border: 1px solid #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+            .workout-table .metric-label {{ text-align: left; font-weight: 500; width: 140px; }}
             .twin-a {{ background-color: {twin_a_bg}; }}
             .twin-b {{ background-color: {twin_b_bg}; }}
             .total-col {{ font-weight: 600; background-color: #f8fafc; }}
