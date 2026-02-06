@@ -1097,7 +1097,7 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
 # WORKOUT DATA FETCHING
 # =============================================================================
 
-def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> List[Dict[str, Any]]:
+def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Fetch workout data for a twin from the Oura API.
     Filters out 'walking' activities.
@@ -1108,22 +1108,46 @@ def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> List
         end_date: End date for data range
     
     Returns:
-        List of workout dictionaries with activity, duration_hours, calories, day
+        Tuple of (workout list, debug info dict)
     """
+    debug_info = {
+        'token_present': False,
+        'api_response': None,
+        'raw_count': 0,
+        'walking_filtered': 0,
+        'activity_types': [],
+        'error': None
+    }
+    
     token = st.session_state.get(f'{twin}_token')
     if not token:
-        return []
+        debug_info['error'] = 'No token found'
+        return [], debug_info
     
-    response = fetch_oura_data('/usercollection/workout', token, start_date, end_date)
+    debug_info['token_present'] = True
+    
+    try:
+        response = fetch_oura_data('/usercollection/workout', token, start_date, end_date)
+        debug_info['api_response'] = 'Success' if response else 'None/Empty'
+    except Exception as e:
+        debug_info['error'] = str(e)
+        return [], debug_info
+    
     if not response:
-        return []
+        return [], debug_info
+    
+    raw_workouts = response.get('data', [])
+    debug_info['raw_count'] = len(raw_workouts)
+    debug_info['activity_types'] = list(set(w.get('activity', 'Unknown') for w in raw_workouts))
     
     workouts = []
-    for workout in response.get('data', []):
+    walking_count = 0
+    for workout in raw_workouts:
         activity = workout.get('activity', '').lower()
         
         # Filter out walking
         if 'walking' in activity or 'walk' in activity:
+            walking_count += 1
             continue
         
         # Calculate duration from start/end times
@@ -1149,7 +1173,8 @@ def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> List
             'intensity': workout.get('intensity', 'unknown')
         })
     
-    return workouts
+    debug_info['walking_filtered'] = walking_count
+    return workouts, debug_info
 
 # =============================================================================
 # INTRADAY HEART RATE DATA (for Exercise Session Comparison)
@@ -1892,9 +1917,31 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
     st.markdown("### 🏋️ Workout Comparison")
     st.caption("Excludes walking. Shows duration (hours) and calories per workout.")
     
-    # Fetch workouts for both twins
-    workouts_a = fetch_workouts_for_twin('twin_a', start_date, end_date)
-    workouts_b = fetch_workouts_for_twin('twin_b', start_date, end_date)
+    # Fetch workouts for both twins (returns tuple with debug info)
+    workouts_a, debug_a = fetch_workouts_for_twin('twin_a', start_date, end_date)
+    workouts_b, debug_b = fetch_workouts_for_twin('twin_b', start_date, end_date)
+    
+    # Debug info expander
+    with st.expander("🔍 Debug Info", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**Twin A:**")
+            st.write(f"- Token present: {debug_a['token_present']}")
+            st.write(f"- API response: {debug_a['api_response']}")
+            st.write(f"- Raw workouts from API: {debug_a['raw_count']}")
+            st.write(f"- Walking filtered out: {debug_a['walking_filtered']}")
+            st.write(f"- Activity types found: {debug_a['activity_types']}")
+            if debug_a['error']:
+                st.error(f"Error: {debug_a['error']}")
+        with col2:
+            st.write("**Twin B:**")
+            st.write(f"- Token present: {debug_b['token_present']}")
+            st.write(f"- API response: {debug_b['api_response']}")
+            st.write(f"- Raw workouts from API: {debug_b['raw_count']}")
+            st.write(f"- Walking filtered out: {debug_b['walking_filtered']}")
+            st.write(f"- Activity types found: {debug_b['activity_types']}")
+            if debug_b['error']:
+                st.error(f"Error: {debug_b['error']}")
     
     if not workouts_a and not workouts_b:
         st.info("No workout data available for the selected date range. Connect both twins and ensure workouts are recorded.")
