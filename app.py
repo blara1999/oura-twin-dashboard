@@ -116,6 +116,7 @@ def check_password() -> bool:
         submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
         
         if submitted:
+            try:
                 # Combine secrets and env vars
                 valid_users = st.secrets.get("passwords", {}).copy() if hasattr(st, "secrets") else {}
                 if "APP_USERNAME" in os.environ and "APP_PASSWORD" in os.environ:
