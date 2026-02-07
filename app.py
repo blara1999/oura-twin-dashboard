@@ -2976,7 +2976,7 @@ def render_workout_comparison(start_date: date, end_date: date, df_a, df_b, metr
                 'readiness_score', 'temperature_deviation',
                 "Daily Readiness Score vs Skin Temperature",
                 "Readiness Score (0-100)", "Temp Deviation (°C)",
-                dark_mode=is_dark
+                dark_mode=dark_mode
             )
             st.plotly_chart(fig_readiness, use_container_width=True)
         with col3:
