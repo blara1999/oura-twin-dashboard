@@ -2844,8 +2844,8 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                 </tr>
                 <tr class="twin-a">
                     <td class="metric-label">🔵 Twin A Hours</td>
-                    {''.join(f'<td>{f"{h}h" if h else "—"}</td>' for h in twin_a_hours)}
-                    <td class="total-col">{round(week_a_hours, 1)}h</td>
+                    {''.join(f'<td>{f"{h:.1f}h" if h else "—"}</td>' for h in twin_a_hours)}
+                    <td class="total-col">{week_a_hours:.1f}h</td>
                 </tr>
                 <tr class="twin-a">
                     <td class="metric-label">🔵 Twin A Cal</td>
@@ -2859,8 +2859,8 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                 </tr>
                 <tr class="twin-b">
                     <td class="metric-label">🔴 Twin B Hours</td>
-                    {''.join(f'<td>{f"{h}h" if h else "—"}</td>' for h in twin_b_hours)}
-                    <td class="total-col">{round(week_b_hours, 1)}h</td>
+                    {''.join(f'<td>{f"{h:.1f}h" if h else "—"}</td>' for h in twin_b_hours)}
+                    <td class="total-col">{week_b_hours:.1f}h</td>
                 </tr>
                 <tr class="twin-b">
                     <td class="metric-label">🔴 Twin B Cal</td>
