@@ -2636,7 +2636,7 @@ def render_kpi_metric(label: str, value_a: Any, value_b: Any, unit: str = "",
 # WORKOUT COMPARISON
 # =============================================================================
 
-def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool = False):
+def render_workout_comparison(start_date: date, end_date: date, df_a, df_b, metrics_a, metrics_b, dark_mode: bool = False):
     """
     Render workout comparison as separate tables per week.
     Each table has days as columns (Mon-Sun) and metrics as rows.
@@ -2644,6 +2644,10 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
     Args:
         start_date: Start date for data range (used for API fetch)
         end_date: End date for data range (used for API fetch)
+        df_a: Twin A dataframe
+        df_b: Twin B dataframe
+        metrics_a: Twin A metrics
+        metrics_b: Twin B metrics
         dark_mode: Whether to use dark mode styling
     """
     st.markdown("### 🏋️ Weekly Workout Comparison")
@@ -3316,30 +3320,7 @@ def render_main_content():
             )
             st.plotly_chart(fig_temp, use_container_width=True)
 
-        # Row 4 - Cardiovascular Age and Resilience
-        col7, col8 = st.columns(2)
-
-        with col7:
-            st.write("**Cardiovascular Age** — Vascular health")
-            fig_cv = create_comparative_line_chart(
-                df_a, df_b,
-                y_column='cardiovascular_age',
-                title='Cardiovascular Age',
-                y_axis_title='Age (years)',
-                dark_mode=is_dark
-            )
-            st.plotly_chart(fig_cv, use_container_width=True)
-
-        with col8:
-            st.write("**Resilience** — Recovery capacity (1-5)")
-            fig_resilience = create_comparative_line_chart(
-                df_a, df_b,
-                y_column='resilience_score',
-                title='Resilience Score',
-                y_axis_title='Score (1=Limited, 5=Exceptional)',
-                dark_mode=is_dark
-            )
-            st.plotly_chart(fig_resilience, use_container_width=True)
+        # Row 4 - Removed Cardiovascular Age and Resilience as requested
 
         # Row 5 - Readiness Score (New for CZ IHT)
         st.write("**Readiness & Recovery**")
@@ -3356,7 +3337,7 @@ def render_main_content():
     # TAB 3: WORKOUTS
     # ==========================================================================
     with tab_workouts:
-        render_workout_comparison(start_date, end_date, dark_mode=is_dark)
+        render_workout_comparison(start_date, end_date, df_a, df_b, metrics_a, metrics_b, dark_mode=is_dark)
     
     # ==========================================================================
     # TAB 4: POLAR WORKOUTS
