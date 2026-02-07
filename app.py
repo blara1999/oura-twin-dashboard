@@ -1123,6 +1123,10 @@ def handle_oauth_callback():
             st.query_params.clear()
             return
         
+        # Check if it's a Polar state (starts with polar_)
+        if state.startswith('polar_'):
+            return  # Let Polar handler take care of it
+            
         # Parse and validate state to get twin identifier
         twin = parse_oauth_state(state)
         
@@ -1310,7 +1314,7 @@ def handle_polar_oauth_callback():
         
         # Check if it's a Polar state (starts with polar_)
         if not state.startswith('polar_'):
-            return  # Let Oura handler check it
+            return  # Let other handlers (Oura) check it
             
         code = query_params['code']
         
@@ -1350,7 +1354,9 @@ def handle_polar_oauth_callback():
             else:
                 st.error("❌ Failed to exchange Polar code for token")
         else:
+            # We only show error if it starts with polar_ but is malformed
             st.error("❌ Invalid Polar state format")
+            st.query_params.clear()
             
 def register_polar_user(token: str, user_id: str):
     """Register user with Polar API (required once)."""
@@ -3523,8 +3529,8 @@ def main():
         st.stop()  # Don't run the rest of the app
     
     # Handle OAuth callback if present
-    handle_oauth_callback()
     handle_polar_oauth_callback()
+    handle_oauth_callback()
     
     # Inject dark mode CSS if enabled
     inject_dark_mode_css()
