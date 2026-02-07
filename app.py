@@ -1454,36 +1454,56 @@ def fetch_polar_exercises(token: str) -> List[Dict[str, Any]]:
     # BUT, we need `user_id`.
     # Let's ensure we have `polar_twin_x_user_id`.
 
-def get_polar_available_exercises(token: str) -> Tuple[List[str], Dict[str, Any]]:
-    """Get list of available exercise URLs for the last 30 days."""
+def create_polar_transaction(token: str, user_id: int) -> Tuple[Optional[str], List[str], Dict[str, Any]]:
+    """
+    Create a transaction to get available exercises.
+    Returns: (transaction_id, list_of_exercise_urls, debug_info)
+    """
     headers = {
         'Authorization': f'Bearer {token}',
         'Accept': 'application/json'
     }
     
-    debug = {'url': f"{POLAR_API_BASE}/exercises", 'status': None, 'response': None, 'error': None}
+    url = f"{POLAR_API_BASE}/users/{user_id}/exercise-transactions"
+    debug = {'url': url, 'status': None, 'response': None, 'error': None}
     
     try:
-        # GET /v3/exercises returns exercise summaries for the last 30 days
-        response = requests.get(f"{POLAR_API_BASE}/exercises", headers=headers)
+        response = requests.post(url, headers=headers)
         debug['status'] = response.status_code
         
-        if response.status_code == 200:
+        if response.status_code == 201:
             data = response.json()
-            debug['response'] = data
-            # Response is a list of exercise summaries, each with a 'resource-uri'
-            exercises = [ex.get('resource-uri') for ex in data if ex.get('resource-uri')]
-            return exercises, debug
+            debug['response'] = "Transaction Created"
+            transaction_id = str(data.get('transaction-id'))
+            resource_urls = data.get('exercises', [])
+            return transaction_id, resource_urls, debug
+            
         elif response.status_code == 204:
-            # No content - this is normal behavior when there are no new exercises
-            debug['response'] = "No Content (204) - No new exercises to sync"
-            return [], debug
+            debug['response'] = "No Content (204) - No new exercises"
+            return None, [], debug
+            
         else:
             debug['response'] = response.text
-            return [], debug
+            return None, [], debug
+            
     except Exception as e:
         debug['error'] = str(e)
-        return [], debug
+        return None, [], debug
+
+def commit_polar_transaction(token: str, user_id: int, transaction_id: str) -> bool:
+    """Commit the transaction to mark data as fetched."""
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/json' # API docs might require specific content-type or None
+    }
+    
+    url = f"{POLAR_API_BASE}/users/{user_id}/exercise-transactions/{transaction_id}"
+    
+    try:
+        response = requests.put(url, headers=headers)
+        return response.status_code == 200
+    except Exception:
+        return False
 
 def fetch_polar_exercise_data(token: str, url: str) -> Optional[Dict[str, Any]]:
     """Fetch full exercise data from a specific exercise URL."""
@@ -1523,16 +1543,31 @@ def get_polar_workout_data(twin: str) -> Tuple[List[Dict[str, Any]], Dict[str, A
         except Exception as e:
             debug_info['user_registration_error'] = str(e)
 
-    # 2. Get available exercises (last 30 days)
-    exercise_urls, list_debug = get_polar_available_exercises(token)
+    # 2. Get available exercises via Transaction
+    if not user_id:
+         # Fallback or error if no user_id (required for transactions)
+         return [], {'error': 'No user_id found for Polar transaction'}
+         
+    transaction_id, exercise_urls, list_debug = create_polar_transaction(token, user_id)
     debug_info.update(list_debug)
     
     workouts = []
-    # Limit to last 5 to avoid slow loading
-    for url in exercise_urls[:5]:
-        data = fetch_polar_exercise_data(token, url)
-        if data:
-            workouts.append(data)
+    
+    if transaction_id and exercise_urls:
+        # 3. Fetch Data
+        # Ensure we don't fetch too many if there's a huge backlog, but usually we want all
+        # Limit to last 5 for safety/speed if needed, but user likely wants all new ones.
+        # Let's fetch up to 10 latest to be safe.
+        for url in exercise_urls[:10]:
+            data = fetch_polar_exercise_data(token, url)
+            if data:
+                workouts.append(data)
+        
+        # 4. Commit Transaction
+        # "If you don't commit the transaction, the data remains available for the next fetch"
+        # User requested: "Commit Transaction"
+        commit_success = commit_polar_transaction(token, user_id, transaction_id)
+        debug_info['transaction_commit'] = 'Success' if commit_success else 'Failed'
             
     return workouts, debug_info
 
