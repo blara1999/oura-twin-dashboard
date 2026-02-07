@@ -1652,7 +1652,7 @@ def fetch_oura_data(
     endpoint: str,
     token: str,
     start_date: date,
-    end_date: date
+    end_date: date,
     check_limit: bool = False
 ) -> Optional[Dict[str, Any]]:
     """
