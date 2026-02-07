@@ -45,14 +45,14 @@ except ImportError:
 def is_running_on_cloud() -> bool:
     """Check if running on Cloud Run (environment variables will be available)."""
     # Check for any of the user credentials (4 users supported)
-    user_keys = ['chris', 'graham', 'dr_patryjca', 'dr_barney']
+    user_keys = ['chris', 'graham', 'dr_patrycja', 'dr_barney']
     return any(key in os.environ for key in user_keys)
 
 def get_valid_users() -> dict:
     """Get all valid username/password pairs from environment variables."""
     valid_users = {}
     # Support multiple users: username env var maps to password env var
-    user_keys = ['chris', 'graham', 'dr_patryjca', 'dr_barney']
+    user_keys = ['chris', 'graham', 'dr_patrycja', 'dr_barney']
     for user in user_keys:
         if user in os.environ:
             valid_users[user] = os.environ[user]
@@ -132,7 +132,7 @@ def check_password() -> bool:
     """, unsafe_allow_html=True)
     
     st.markdown('<div class="login-title">🔬 Twin Physiology Monitor</div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-subtitle">High-Altitude Expedition Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-subtitle">Carstensz Pyramid IHT Study • Feb–Mar 2026</div>', unsafe_allow_html=True)
     
     # Use a form to prevent multiple submission issues and state synchronization bugs
     with st.form("login_form"):
@@ -146,17 +146,7 @@ def check_password() -> bool:
                 # Get credentials from environment variables (multiple users)
                 valid_users = get_valid_users()
                 
-                # Debug: Show what we're checking
-                with st.expander("🔍 Debug Info", expanded=True):
-                    st.write(f"Username entered: '{username}'")
-                    st.write(f"Password length: {len(password) if password else 0}")
-                    st.write(f"Available users: {list(valid_users.keys())}")
-                    if username in valid_users:
-                        stored = valid_users[username]
-                        st.write(f"Stored password length: {len(stored)}")
-                        st.write(f"Passwords match: {password == stored}")
-                    else:
-                        st.write(f"Username '{username}' not found")
+                # Debug info block removed for security
                 
                 if username in valid_users and password == valid_users[username]:
                     st.session_state["authenticated"] = True
@@ -373,6 +363,20 @@ RATE_LIMIT_WINDOW = 300  # seconds
 # Color scheme for twins - professional medical colors
 TWIN_A_COLOR = "#0369a1"  # Sky blue - professional
 TWIN_B_COLOR = "#be123c"  # Rose red - professional
+
+# Study Configuration
+TWIN_LABELS = {
+    'twin_a': {'name': 'Chris (CP)', 'role': 'IHT Intervention', 'color': TWIN_A_COLOR, 'timezone': 'Asia/Dubai'},
+    'twin_b': {'name': 'Graham (GP)', 'role': 'Control', 'color': TWIN_B_COLOR, 'timezone': 'Europe/London'},
+}
+
+# IHT Session Log (for annotations)
+IHT_SESSIONS = [
+    {"date": date(2026, 2, 10), "session": 1, "note": "Week 1 Mon - with HIIT"},
+]
+
+# Timezone Configuration (Default for study-wide logic if needed, though we use per-twin now)
+STUDY_TIMEZONE = 'Asia/Dubai' 
 
 # Page configuration
 st.set_page_config(
@@ -1924,48 +1928,46 @@ def create_intraday_comparison_chart(
     
     has_data = False
     
-    def parse_timestamp_to_local(ts_str: str) -> pd.Timestamp:
-        """Parse ISO 8601 timestamp and convert to Dubai local time (UTC+4)."""
+    def parse_timestamp_to_local(ts_str: str, target_tz: str) -> pd.Timestamp:
+        """Parse ISO 8601 timestamp and convert to specific local time."""
         # Parse with timezone info
         ts = pd.to_datetime(ts_str)
-        # Convert to Dubai time (UTC+4)
+        # Convert to target timezone
         if ts.tzinfo is not None:
-            # Convert from UTC to Dubai time by adding 4 hours
-            ts = ts.tz_convert('Asia/Dubai')
+            # Convert from UTC to target time
+            ts = ts.tz_convert(target_tz)
             # Remove timezone info for plotting (keeps the local wall clock time)
             ts = ts.replace(tzinfo=None)
         return ts
     
-    # Process Twin A data
     if data_a:
         has_data = True
-        timestamps_a = [parse_timestamp_to_local(d['timestamp']) for d in data_a]
+        timestamps_a = [parse_timestamp_to_local(d['timestamp'], TWIN_LABELS['twin_a']['timezone']) for d in data_a]
         bpm_a = [d['bpm'] for d in data_a]
         
         fig.add_trace(go.Scatter(
             x=timestamps_a,
             y=bpm_a,
-            name='Twin A (IHT)',
+            name=f"{TWIN_LABELS['twin_a']['name']} ({TWIN_LABELS['twin_a']['role']})",
             line=dict(color=TWIN_A_COLOR, width=2),
             mode='lines+markers',
             marker=dict(size=4),
-            hovertemplate='<b>Twin A</b><br>Time: %{x|%H:%M}<br>HR: %{y} bpm<extra></extra>'
+            hovertemplate=f"<b>{TWIN_LABELS['twin_a']['name']}</b><br>Time: %{{x|%H:%M}}<br>HR: %{{y}} bpm<extra></extra>"
         ))
     
-    # Process Twin B data
     if data_b:
         has_data = True
-        timestamps_b = [parse_timestamp_to_local(d['timestamp']) for d in data_b]
+        timestamps_b = [parse_timestamp_to_local(d['timestamp'], TWIN_LABELS['twin_b']['timezone']) for d in data_b]
         bpm_b = [d['bpm'] for d in data_b]
         
         fig.add_trace(go.Scatter(
             x=timestamps_b,
             y=bpm_b,
-            name='Twin B (Regular)',
+            name=f"{TWIN_LABELS['twin_b']['name']} ({TWIN_LABELS['twin_b']['role']})",
             line=dict(color=TWIN_B_COLOR, width=2),
             mode='lines+markers',
             marker=dict(size=4),
-            hovertemplate='<b>Twin B</b><br>Time: %{x|%H:%M}<br>HR: %{y} bpm<extra></extra>'
+            hovertemplate=f"<b>{TWIN_LABELS['twin_b']['name']}</b><br>Time: %{{x|%H:%M}}<br>HR: %{{y}} bpm<extra></extra>"
         ))
     
     # Styling
@@ -2061,11 +2063,7 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         spo2_df = pd.DataFrame(raw_data['daily_spo2'])
         spo2_df['day'] = pd.to_datetime(spo2_df['day'])
         
-        # Debug: Print first record to see actual structure
-        if len(raw_data['daily_spo2']) > 0:
-            first_record = raw_data['daily_spo2'][0]
-            print(f"[DEBUG] SpO2 first record keys: {first_record.keys()}")
-            print(f"[DEBUG] SpO2 first record: {first_record}")
+        # Debug prints removed
         
         # Extract average SpO2 from nested structure
         def extract_spo2(row):
@@ -2098,7 +2096,8 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         df = df.merge(spo2_df[['day', 'spo2']], on='day', how='left')
     else:
         df['spo2'] = None
-        print("[DEBUG] No SpO2 data returned from API")
+        # print("[DEBUG] No SpO2 data returned from API")
+        pass
     
     # Process sleep data (for RHR, HRV, respiratory rate, and potentially SpO2)
     if raw_data.get('sleep'):
@@ -2106,12 +2105,12 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         sleep_df['day'] = pd.to_datetime(sleep_df['day'])
         
         # Debug: show all available columns in sleep data
-        print(f"[DEBUG] Sleep data columns: {list(sleep_df.columns)}")
+        # print(f"[DEBUG] Sleep data columns: {list(sleep_df.columns)}")
         
         # Check if SpO2 is in sleep data (fallback if daily_spo2 endpoint failed)
         spo2_columns = [c for c in sleep_df.columns if 'spo2' in c.lower() or 'oxygen' in c.lower()]
         if spo2_columns and ('spo2' not in df.columns or df['spo2'].isna().all()):
-            print(f"[DEBUG] Found SpO2-like columns in sleep data: {spo2_columns}")
+            # print(f"[DEBUG] Found SpO2-like columns in sleep data: {spo2_columns}")
             # Try to extract SpO2 from sleep data
             for col in spo2_columns:
                 if col in sleep_df.columns:
@@ -2166,11 +2165,11 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
             how='left'
         )
         if not cv_df.empty:
-            print(f"[DEBUG] CV Age columns: {cv_df.columns}")
-            if 'vascular_age' in cv_df.columns:
-                print(f"[DEBUG] CV Age sample: {cv_df['vascular_age'].head()}")
-            else:
-                print(f"[DEBUG] 'vascular_age' not found in CV response")
+            pass
+            # if 'vascular_age' in cv_df.columns:
+            #     print(f"[DEBUG] CV Age sample: {cv_df['vascular_age'].head()}")
+            # else:
+            #     print(f"[DEBUG] 'vascular_age' not found in CV response")
     else:
         df['cardiovascular_age'] = None
 
@@ -2203,9 +2202,9 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
             how='left'
         )
         if not resilience_df.empty:
-            print(f"[DEBUG] Resilience columns: {resilience_df.columns}")
-            if 'level' in resilience_df.columns:
-                print(f"[DEBUG] Resilience levels: {resilience_df['level'].unique()}")
+            pass
+            # if 'level' in resilience_df.columns:
+            #     print(f"[DEBUG] Resilience levels: {resilience_df['level'].unique()}")
     else:
         df['resilience_score'] = None
     
@@ -2294,11 +2293,11 @@ def create_comparative_line_chart(
             fig.add_trace(go.Scatter(
                 x=df_a_clean['day'],
                 y=df_a_clean[y_column],
-                name='Twin A',
+                name=TWIN_LABELS['twin_a']['name'],
                 line=dict(color=TWIN_A_COLOR, width=3, shape='spline'),
                 mode='lines+markers',
                 marker=dict(size=8, symbol='circle'),
-                hovertemplate='<b>Twin A</b><br>Date: %{x|%Y-%m-%d}<br>Value: %{y:.1f}<extra></extra>'
+                hovertemplate=f"<b>{TWIN_LABELS['twin_a']['name']}</b><br>Date: %{{x|%Y-%m-%d}}<br>Value: %{{y:.1f}}<extra></extra>"
             ))
     
     # Twin B trace
@@ -2309,11 +2308,11 @@ def create_comparative_line_chart(
             fig.add_trace(go.Scatter(
                 x=df_b_clean['day'],
                 y=df_b_clean[y_column],
-                name='Twin B',
+                name=TWIN_LABELS['twin_b']['name'],
                 line=dict(color=TWIN_B_COLOR, width=3, shape='spline'),
                 mode='lines+markers',
                 marker=dict(size=8, symbol='diamond'),
-                hovertemplate='<b>Twin B</b><br>Date: %{x|%Y-%m-%d}<br>Value: %{y:.1f}<extra></extra>'
+                hovertemplate=f"<b>{TWIN_LABELS['twin_b']['name']}</b><br>Date: %{{x|%Y-%m-%d}}<br>Value: %{{y:.1f}}<extra></extra>"
             ))
     
     # Add "No Data" annotation if no data exists
@@ -2422,7 +2421,7 @@ def create_dual_axis_chart(
                 go.Scatter(
                     x=df_a_clean['day'],
                     y=df_a_clean[y1_column],
-                    name=f'Twin A - {y1_title}',
+                    name=f"{TWIN_LABELS['twin_a']['name']} - {y1_title}",
                     line=dict(color=TWIN_A_COLOR, width=3, shape='spline'),
                     mode='lines+markers'
                 ),
@@ -2438,7 +2437,7 @@ def create_dual_axis_chart(
                 go.Scatter(
                     x=df_b_clean['day'],
                     y=df_b_clean[y1_column],
-                    name=f'Twin B - {y1_title}',
+                    name=f"{TWIN_LABELS['twin_b']['name']} - {y1_title}",
                     line=dict(color=TWIN_B_COLOR, width=3, shape='spline'),
                     mode='lines+markers'
                 ),
@@ -2454,7 +2453,7 @@ def create_dual_axis_chart(
                 go.Scatter(
                     x=df_a_clean2['day'],
                     y=df_a_clean2[y2_column],
-                    name=f'Twin A - {y2_title}',
+                    name=f"{TWIN_LABELS['twin_a']['name']} - {y2_title}",
                     line=dict(color=TWIN_A_COLOR, width=2, dash='dot', shape='spline'),
                     mode='lines+markers',
                     marker=dict(symbol='square', size=6)
@@ -2471,7 +2470,7 @@ def create_dual_axis_chart(
                 go.Scatter(
                     x=df_b_clean2['day'],
                     y=df_b_clean2[y2_column],
-                    name=f'Twin B - {y2_title}',
+                    name=f"{TWIN_LABELS['twin_b']['name']} - {y2_title}",
                     line=dict(color=TWIN_B_COLOR, width=2, dash='dot', shape='spline'),
                     mode='lines+markers',
                     marker=dict(symbol='square', size=6)
@@ -2869,32 +2868,32 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             </thead>
             <tbody>
                 <tr class="twin-a">
-                    <td class="metric-label">🔵 Twin A Activity</td>
+                    <td class="metric-label">🔵 {TWIN_LABELS['twin_a']['name']} Activity</td>
                     {''.join(f'<td>{a}</td>' for a in twin_a_activities)}
                     <td class="total-col">—</td>
                 </tr>
                 <tr class="twin-a">
-                    <td class="metric-label">🔵 Twin A Hours</td>
+                    <td class="metric-label">🔵 {TWIN_LABELS['twin_a']['name']} Hours</td>
                     {''.join(f'<td>{f"{h:.1f}h" if h else "—"}</td>' for h in twin_a_hours)}
                     <td class="total-col">{week_a_hours:.1f}h</td>
                 </tr>
                 <tr class="twin-a">
-                    <td class="metric-label">🔵 Twin A Cal</td>
+                    <td class="metric-label">🔵 {TWIN_LABELS['twin_a']['name']} Cal</td>
                     {''.join(f'<td>{int(c) if c else "—"}</td>' for c in twin_a_cals)}
                     <td class="total-col">{int(week_a_cals)}</td>
                 </tr>
                 <tr class="twin-b">
-                    <td class="metric-label">🔴 Twin B Activity</td>
+                    <td class="metric-label">🔴 {TWIN_LABELS['twin_b']['name']} Activity</td>
                     {''.join(f'<td>{a}</td>' for a in twin_b_activities)}
                     <td class="total-col">—</td>
                 </tr>
                 <tr class="twin-b">
-                    <td class="metric-label">🔴 Twin B Hours</td>
+                    <td class="metric-label">🔴 {TWIN_LABELS['twin_b']['name']} Hours</td>
                     {''.join(f'<td>{f"{h:.1f}h" if h else "—"}</td>' for h in twin_b_hours)}
                     <td class="total-col">{week_b_hours:.1f}h</td>
                 </tr>
                 <tr class="twin-b">
-                    <td class="metric-label">🔴 Twin B Cal</td>
+                    <td class="metric-label">🔴 {TWIN_LABELS['twin_b']['name']} Cal</td>
                     {''.join(f'<td>{int(c) if c else "—"}</td>' for c in twin_b_cals)}
                     <td class="total-col">{int(week_b_cals)}</td>
                 </tr>
@@ -2923,158 +2922,7 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
 # MAIN APPLICATION
 # =============================================================================
 
-def render_sidebar():
-    """Render the sidebar with authentication and settings."""
-    with st.sidebar:
-        st.markdown("**Expedition Control**")
-        
-        st.divider()
-        
-        # Display Settings
-        st.markdown("**Display**")
-        col1, col2 = st.columns(2)
-        with col1:
-            dark_mode = st.toggle(
-                "🌙 Dark",
-                value=st.session_state.dark_mode,
-                help="Toggle dark mode for nighttime monitoring"
-            )
-            if dark_mode != st.session_state.dark_mode:
-                st.session_state.dark_mode = dark_mode
-                st.rerun()
-        
-        st.divider()
-        
-        # OAuth Configuration
-        st.markdown("**API Credentials**")
-        
-        # Load saved credentials
-        saved_creds = load_credentials()
-        
-        # Only show config if credentials not loaded from secrets or env vars
-        if not has_oura_secrets():
-            st.markdown("**API Credentials**")
-            
-            # Load saved credentials
-            saved_creds = load_credentials()
-            
-            with st.expander("Configure", expanded=not saved_creds.get('client_id')):
-                client_id = st.text_input(
-                    "Client ID",
-                    value=saved_creds.get('client_id', ''),
-                    type="password"
-                )
-                client_secret = st.text_input(
-                    "Client Secret",
-                    value=saved_creds.get('client_secret', ''),
-                    type="password"
-                )
-                redirect_uri = st.text_input(
-                    "Redirect URI",
-                    value=saved_creds.get('redirect_uri', 'http://localhost:8501')
-                )
-                
-                # Save button
-                if st.button("Save", type="primary", use_container_width=True):
-                    if client_id and client_secret:
-                        save_credentials(client_id, client_secret, redirect_uri)
-                        st.session_state.client_id = client_id
-                        st.session_state.client_secret = client_secret
-                        st.session_state.redirect_uri = redirect_uri
-                        st.success("Saved")
-                        st.rerun()
-                    else:
-                        st.error("Enter both ID and Secret")
-                
-                if saved_creds.get('client_id'):
-                    st.caption("Credentials saved")
-            
-        st.divider()
-        
-        # Twin A Connection
-        st.markdown("**Twin A**")
-        if is_token_valid('twin_a'):
-            st.success("Connected")
-            if st.button("Disconnect", key="disconnect_a", use_container_width=True):
-                st.session_state.twin_a_token = None
-                st.session_state.twin_a_refresh_token = None
-                remove_twin_tokens('twin_a')
-                st.rerun()
-        else:
-            st.error("Not Connected")
-            # Ensure we have credentials before showing connect button
-            if saved_creds.get('client_id') and saved_creds.get('client_secret'):
-                auth_url = get_authorization_url('twin_a')
-                st.link_button("Connect Twin A", auth_url, use_container_width=True)
-            else:
-                st.caption("Save credentials first")
-        
-        st.divider()
-        
-        # Twin B Connection
-        st.markdown("**Twin B**")
-        if is_token_valid('twin_b'):
-            st.success("Connected")
-            if st.button("Disconnect", key="disconnect_b", use_container_width=True):
-                st.session_state.twin_b_token = None
-                st.session_state.twin_b_refresh_token = None
-                remove_twin_tokens('twin_b')
-                st.rerun()
-        else:
-            st.error("Not Connected")
-            if saved_creds.get('client_id') and saved_creds.get('client_secret'):
-                auth_url = get_authorization_url('twin_b')
-                st.link_button("Connect Twin B", auth_url, use_container_width=True)
-                st.caption("Will prompt for fresh login")
-            else:
-                st.caption("Save credentials first")
-        
-        st.divider()
-        
-        # Date Range Selection
-        st.markdown("**Date Range**")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input(
-                "Start",
-                value=st.session_state.date_range[0],
-                max_value=date.today(),
-                label_visibility="collapsed"
-            )
-        with col2:
-            end_date = st.date_input(
-                "End",
-                value=st.session_state.date_range[1],
-                max_value=date.today(),
-                label_visibility="collapsed"
-            )
-        
-        if start_date > end_date:
-            st.error("Invalid date range")
-        else:
-            st.session_state.date_range = (start_date, end_date)
-        
-        # Quick date range buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("7 Days", use_container_width=True):
-                st.session_state.date_range = (date.today() - timedelta(days=7), date.today())
-                st.rerun()
-        with col2:
-            if st.button("14 Days", use_container_width=True):
-                st.session_state.date_range = (date.today() - timedelta(days=14), date.today())
-                st.rerun()
-        
-        st.divider()
-        
-        # Rate Limit Info - compact
-        remaining = RATE_LIMIT_REQUESTS - st.session_state.request_count
-        st.caption(f"API: {remaining:,}/{RATE_LIMIT_REQUESTS:,} requests")
-        st.progress(remaining / RATE_LIMIT_REQUESTS)
-        
-        st.divider()
-        st.caption("v2.0 - For Dr. Patrycja")
+# Sidebar Removed
 
 def render_main_content():
     """Render the main dashboard content with tabbed layout."""
@@ -3091,7 +2939,7 @@ def render_main_content():
     
     # Header (always visible)
     st.markdown('<div class="main-header">Twin Physiology Monitor</div>', unsafe_allow_html=True)
-    st.markdown('<div class="expedition-context">High-Altitude Expedition • Biometric Monitoring Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="expedition-context">Carstensz Pyramid IHT Study • Feb–Mar 2026 • Oura Ring Gen 4</div>', unsafe_allow_html=True)
     
     # Get data
     start_date, end_date = st.session_state.date_range
@@ -3550,7 +3398,7 @@ def render_main_content():
                 st.info("No data available for Twin B")
     
     # ==========================================================================
-    # TAB 5: SETTINGS
+    # TAB 6: SETTINGS
     # ==========================================================================
     with tab_settings:
         st.markdown("### Settings")
@@ -3681,7 +3529,7 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.caption("Twin Physiology Study • Oura Ring Gen 4 • Rate Limit: 5000 req/5 min")
+    st.caption("CZ IHT Twin Study v2.1 • Oura Gen 4 + Polar H10 + Train.Red NIRS")
 
 if __name__ == "__main__":
     main()
