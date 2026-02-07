@@ -1528,12 +1528,14 @@ def create_intraday_comparison_chart(
     has_data = False
     
     def parse_timestamp_to_local(ts_str: str) -> pd.Timestamp:
-        """Parse ISO 8601 timestamp and use local time (ignoring timezone offset)."""
+        """Parse ISO 8601 timestamp and convert to Dubai local time (UTC+4)."""
         # Parse with timezone info
         ts = pd.to_datetime(ts_str)
-        # Remove timezone info without converting to UTC/other zone
-        # This keeps the "wall clock" time
+        # Convert to Dubai time (UTC+4)
         if ts.tzinfo is not None:
+            # Convert from UTC to Dubai time by adding 4 hours
+            ts = ts.tz_convert('Asia/Dubai')
+            # Remove timezone info for plotting (keeps the local wall clock time)
             ts = ts.replace(tzinfo=None)
         return ts
     
