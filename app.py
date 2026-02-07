@@ -1780,6 +1780,7 @@ def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> Tupl
             'activity': workout.get('activity', 'Unknown'),
             'duration_hours': duration_hours,
             'calories': workout.get('calories') or 0,
+            'avg_heart_rate': workout.get('average_heart_rate'),
             'intensity': workout.get('intensity', 'unknown')
         })
     
@@ -2658,15 +2659,11 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
     # Helper to get day data
     def get_day_data(df, day_date):
         if df.empty:
-            return {'hours': 0, 'calories': 0, 'activity': '—'}
+            return []
         day_data = df[df['day'] == day_date]
         if day_data.empty:
-            return {'hours': 0, 'calories': 0, 'activity': '—'}
-        return {
-            'hours': round(day_data['duration_hours'].sum(), 1),
-            'calories': int(day_data['calories'].sum()),
-            'activity': ', '.join(day_data['activity'].unique())
-        }
+            return []
+        return day_data.to_dict('records')
     
     # Color scheme - dark mode aware
     if dark_mode:
@@ -2700,31 +2697,81 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             data_a = get_day_data(df_a, day_date)
             data_b = get_day_data(df_b, day_date)
             
-            twin_a_activities.append(data_a['activity'])
-            twin_a_hours.append(f"{data_a['hours']}h" if data_a['hours'] else "—")
-            twin_a_cals.append(str(data_a['calories']) if data_a['calories'] else "—")
-            twin_b_activities.append(data_b['activity'])
-            twin_b_hours.append(f"{data_b['hours']}h" if data_b['hours'] else "—")
-            twin_b_cals.append(str(data_b['calories']) if data_b['calories'] else "—")
+            # Process Twin A
+            if data_a:
+                acts = []
+                for w in data_a:
+                    hr = f"{int(w['avg_heart_rate'])} bpm" if w.get('avg_heart_rate') else "—"
+                    intensity = w.get('intensity', 'unknown').title()
+                    duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
+                    
+                    tooltip = f"Duration: {duration}<br>Calories: {int(w['calories'])} kcal<br>Intensity: {intensity}<br>Avg HR: {hr}"
+                    acts.append(f'<span class="workout-chip" title="{tooltip}">{w["activity"]}</span>')
+                
+                twin_a_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
+                twin_a_hours.append(sum(w['duration_hours'] for w in data_a))
+                twin_a_cals.append(sum(w['calories'] for w in data_a))
+            else:
+                twin_a_activities.append("—")
+                twin_a_hours.append(0)
+                twin_a_cals.append(0)
+
+            # Process Twin B
+            if data_b:
+                acts = []
+                for w in data_b:
+                    hr = f"{int(w['avg_heart_rate'])} bpm" if w.get('avg_heart_rate') else "—"
+                    intensity = w.get('intensity', 'unknown').title()
+                    duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
+                    
+                    tooltip = f"Duration: {duration}<br>Calories: {int(w['calories'])} kcal<br>Intensity: {intensity}<br>Avg HR: {hr}"
+                    acts.append(f'<span class="workout-chip" title="{tooltip}">{w["activity"]}</span>')
+                
+                twin_b_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
+                twin_b_hours.append(sum(w['duration_hours'] for w in data_b))
+                twin_b_cals.append(sum(w['calories'] for w in data_b))
+            else:
+                twin_b_activities.append("—")
+                twin_b_hours.append(0)
+                twin_b_cals.append(0)
         
         # Calculate week totals
-        week_a_hours = sum(float(h.replace('h', '')) if h != '—' else 0 for h in twin_a_hours)
-        week_a_cals = sum(int(c) if c != '—' else 0 for c in twin_a_cals)
-        week_b_hours = sum(float(h.replace('h', '')) if h != '—' else 0 for h in twin_b_hours)
-        week_b_cals = sum(int(c) if c != '—' else 0 for c in twin_b_cals)
+        week_a_hours = sum(twin_a_hours)
+        week_a_cals = sum(twin_a_cals)
+        week_b_hours = sum(twin_b_hours)
+        week_b_cals = sum(twin_b_cals)
         
         # Build styled HTML table with dark mode support
         html = f'''
         <style>
-            .workout-table {{ width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 0.85rem; table-layout: fixed; }}
-            .workout-table th {{ background-color: {header_bg}; padding: 8px; text-align: center; border: 1px solid {border_color}; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {text_color}; }}
-            .workout-table th:first-child {{ width: 140px; }}
-            .workout-table th:last-child {{ width: 60px; }}
-            .workout-table td {{ padding: 6px 8px; text-align: center; border: 1px solid {border_color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {text_color}; }}
-            .workout-table .metric-label {{ text-align: left; font-weight: 500; width: 140px; }}
-            .twin-a {{ background-color: {twin_a_bg}; }}
-            .twin-b {{ background-color: {twin_b_bg}; }}
-            .total-col {{ font-weight: 600; background-color: {total_bg}; }}
+            .workout-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 0.85rem; table-layout: fixed; }
+            .workout-table th { background-color: {header_bg}; padding: 8px; text-align: center; border: 1px solid {border_color}; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {text_color}; }
+            .workout-table th:first-child { width: 140px; }
+            .workout-table th:last-child { width: 60px; }
+            .workout-table td { padding: 6px 8px; text-align: center; border: 1px solid {border_color}; color: {text_color}; }
+            .workout-table .metric-label { text-align: left; font-weight: 500; width: 140px; white-space: nowrap; }
+            .twin-a { background-color: {twin_a_bg}; }
+            .twin-b { background-color: {twin_b_bg}; }
+            .total-col { font-weight: 600; background-color: {total_bg}; text-align: center; }
+            
+            /* Tooltip container */
+            .workout-chip {
+                display: inline-block;
+                padding: 2px 6px;
+                margin: 1px;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.4);
+                border: 1px dashed {border_color};
+                cursor: help;
+                font-size: 0.75rem;
+                position: relative;
+            }
+            .activity-cell {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 2px;
+            }
         </style>
         <table class="workout-table">
             <thead>
@@ -2742,12 +2789,12 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                 </tr>
                 <tr class="twin-a">
                     <td class="metric-label">🔵 Twin A Hours</td>
-                    {''.join(f'<td>{h}</td>' for h in twin_a_hours)}
+                    {''.join(f'<td>{f"{h}h" if h else "—"}</td>' for h in twin_a_hours)}
                     <td class="total-col">{round(week_a_hours, 1)}h</td>
                 </tr>
                 <tr class="twin-a">
                     <td class="metric-label">🔵 Twin A Cal</td>
-                    {''.join(f'<td>{c}</td>' for c in twin_a_cals)}
+                    {''.join(f'<td>{int(c) if c else "—"}</td>' for c in twin_a_cals)}
                     <td class="total-col">{int(week_a_cals)}</td>
                 </tr>
                 <tr class="twin-b">
@@ -2757,12 +2804,12 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                 </tr>
                 <tr class="twin-b">
                     <td class="metric-label">🔴 Twin B Hours</td>
-                    {''.join(f'<td>{h}</td>' for h in twin_b_hours)}
+                    {''.join(f'<td>{f"{h}h" if h else "—"}</td>' for h in twin_b_hours)}
                     <td class="total-col">{round(week_b_hours, 1)}h</td>
                 </tr>
                 <tr class="twin-b">
                     <td class="metric-label">🔴 Twin B Cal</td>
-                    {''.join(f'<td>{c}</td>' for c in twin_b_cals)}
+                    {''.join(f'<td>{int(c) if c else "—"}</td>' for c in twin_b_cals)}
                     <td class="total-col">{int(week_b_cals)}</td>
                 </tr>
             </tbody>
