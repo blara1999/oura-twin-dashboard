@@ -10,7 +10,7 @@ Features:
 - Comparative visualization between Twin A (Blue) and Twin B (Red)
 
 Author: Senior Full Stack Data Scientist
-Date: January 2026
+Date: February 2026
 """
 
 import streamlit as st
@@ -387,6 +387,11 @@ TWIN_LABELS = {
 # IHT Session Log (for annotations)
 IHT_SESSIONS = [
     {"date": date(2026, 2, 10), "session": 1, "note": "Week 1 Mon - with HIIT"},
+    {"date": date(2026, 2, 13), "session": 2, "note": "Week 1 Thu"},
+    {"date": date(2026, 2, 17), "session": 3, "note": "Week 2 Mon - with HIIT"},
+    {"date": date(2026, 2, 20), "session": 4, "note": "Week 2 Thu"},
+    {"date": date(2026, 2, 24), "session": 5, "note": "Week 3 Mon - with HIIT"},
+    {"date": date(2026, 2, 27), "session": 6, "note": "Week 3 Thu"},
 ]
 
 # Timezone Configuration (Default for study-wide logic if needed, though we use per-twin now)
@@ -2126,8 +2131,6 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         spo2_df['spo2'] = spo2_df.apply(extract_spo2, axis=1)
         df = df.merge(spo2_df[['day', 'spo2']], on='day', how='left')
     else:
-        df['spo2'] = None
-        # print("[DEBUG] No SpO2 data returned from API")
         pass
     
     # Process sleep data (for RHR, HRV, respiratory rate, and potentially SpO2)
@@ -2135,13 +2138,9 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         sleep_df = pd.DataFrame(raw_data['sleep'])
         sleep_df['day'] = pd.to_datetime(sleep_df['day'])
         
-        # Debug: show all available columns in sleep data
-        # print(f"[DEBUG] Sleep data columns: {list(sleep_df.columns)}")
-        
         # Check if SpO2 is in sleep data (fallback if daily_spo2 endpoint failed)
         spo2_columns = [c for c in sleep_df.columns if 'spo2' in c.lower() or 'oxygen' in c.lower()]
         if spo2_columns and ('spo2' not in df.columns or df['spo2'].isna().all()):
-            # print(f"[DEBUG] Found SpO2-like columns in sleep data: {spo2_columns}")
             # Try to extract SpO2 from sleep data
             for col in spo2_columns:
                 if col in sleep_df.columns:
@@ -2195,12 +2194,6 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
             on='day',
             how='left'
         )
-        if not cv_df.empty:
-            pass
-            # if 'vascular_age' in cv_df.columns:
-            #     print(f"[DEBUG] CV Age sample: {cv_df['vascular_age'].head()}")
-            # else:
-            #     print(f"[DEBUG] 'vascular_age' not found in CV response")
     else:
         df['cardiovascular_age'] = None
 
@@ -2241,17 +2234,11 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
             resilience_df['resilience_score'] = resilience_df['level'].map(level_map)
         else:
             resilience_df['resilience_score'] = None
-        df = df.merge(
+```python
             resilience_df[['day', 'resilience_score']],
             on='day',
             how='left'
         )
-        if not resilience_df.empty:
-            pass
-            # if 'level' in resilience_df.columns:
-            #     print(f"[DEBUG] Resilience levels: {resilience_df['level'].unique()}")
-    else:
-        df['resilience_score'] = None
     
     return df.sort_values('day')
 
@@ -2850,7 +2837,6 @@ def render_workout_comparison(start_date: date, end_date: date, df_a, df_b, metr
             .twin-b {{ background-color: {twin_b_bg}; }}
             .total-col {{ font-weight: 600; background-color: {total_bg}; text-align: center; }}
             
-            /* Tooltip container */
             /* Tooltip container */
             .workout-chip {{
                 display: inline-block;
@@ -3515,6 +3501,11 @@ def render_main_content():
             if st.button("Last 30 Days", use_container_width=True):
                 st.session_state.date_range = (date.today() - timedelta(days=30), date.today())
                 st.rerun()
+        
+        # Training Block Quick Select
+        if st.button("Full Training Block (Feb 10 - Mar 4)", use_container_width=True):
+            st.session_state.date_range = (date(2026, 2, 10), date(2026, 3, 4))
+            st.rerun()
         
         st.divider()
         
