@@ -2762,13 +2762,17 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                     source = w.get('source', 'unknown').replace('_', ' ').title()
                     duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
                     
-                    tooltip_html = f"""
-                    <strong>Duration:</strong> {duration}<br>
-                    <strong>Calories:</strong> {int(w['calories'])} kcal<br>
-                    <strong>Heart Rate:</strong> {avg_hr} avg / {max_hr} max<br>
-                    {f'<strong>Distance:</strong> {dist_km}<br>' if dist_km else ''}
-                    <strong>Source:</strong> {source}
-                    """
+                    # Build tooltip content cleanly to avoid HTML issues
+                    tooltip_lines = [
+                        f"<strong>Duration:</strong> {duration}",
+                        f"<strong>Calories:</strong> {int(w['calories'])} kcal",
+                        f"<strong>Heart Rate:</strong> {avg_hr} avg / {max_hr} max"
+                    ]
+                    if dist_km:
+                        tooltip_lines.append(f"<strong>Distance:</strong> {dist_km}")
+                    tooltip_lines.append(f"<strong>Source:</strong> {source}")
+                    
+                    tooltip_html = "<br>".join(tooltip_lines)
                     acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip twin-a-tooltip">{tooltip_html}</span></div>')
                 
                 twin_a_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
@@ -2789,13 +2793,17 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                     source = w.get('source', 'unknown').replace('_', ' ').title()
                     duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
                     
-                    tooltip_html = f"""
-                    <strong>Duration:</strong> {duration}<br>
-                    <strong>Calories:</strong> {int(w['calories'])} kcal<br>
-                    <strong>Heart Rate:</strong> {avg_hr} avg / {max_hr} max<br>
-                    {f'<strong>Distance:</strong> {dist_km}<br>' if dist_km else ''}
-                    <strong>Source:</strong> {source}
-                    """
+                    # Build tooltip content cleanly to avoid HTML issues
+                    tooltip_lines = [
+                        f"<strong>Duration:</strong> {duration}",
+                        f"<strong>Calories:</strong> {int(w['calories'])} kcal",
+                        f"<strong>Heart Rate:</strong> {avg_hr} avg / {max_hr} max"
+                    ]
+                    if dist_km:
+                        tooltip_lines.append(f"<strong>Distance:</strong> {dist_km}")
+                    tooltip_lines.append(f"<strong>Source:</strong> {source}")
+                    
+                    tooltip_html = "<br>".join(tooltip_lines)
                     acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip twin-b-tooltip">{tooltip_html}</span></div>')
                 
                 twin_b_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
