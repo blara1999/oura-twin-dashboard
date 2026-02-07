@@ -1471,14 +1471,13 @@ def create_intraday_comparison_chart(
     has_data = False
     
     def parse_timestamp_to_local(ts_str: str) -> pd.Timestamp:
-        """Parse ISO 8601 timestamp and convert to Dubai timezone (UTC+4)."""
+        """Parse ISO 8601 timestamp and use local time (ignoring timezone offset)."""
         # Parse with timezone info
         ts = pd.to_datetime(ts_str)
-        # If timezone-aware, convert to Dubai time
+        # Remove timezone info without converting to UTC/other zone
+        # This keeps the "wall clock" time
         if ts.tzinfo is not None:
-            # Fixed offset for Dubai (UTC+4)
-            ts = ts.tz_convert('Etc/GMT-4')  # Note: Etc/GMT-4 is actually GMT+4
-            ts = ts.tz_localize(None) # Remove tz info for plotting
+            ts = ts.replace(tzinfo=None)
         return ts
     
     # Process Twin A data
@@ -1526,7 +1525,7 @@ def create_intraday_comparison_chart(
     end_range = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=21)
     
     fig.update_layout(
-        title=None,
+        title=dict(text="", font=dict(size=1)), # Empty string to prevent "undefined"
         height=280,
         margin=dict(l=40, r=20, t=20, b=40),
         paper_bgcolor=bg_color,
@@ -1710,6 +1709,12 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
             on='day',
             how='left'
         )
+        if not cv_df.empty:
+            print(f"[DEBUG] CV Age columns: {cv_df.columns}")
+            if 'vascular_age' in cv_df.columns:
+                print(f"[DEBUG] CV Age sample: {cv_df['vascular_age'].head()}")
+            else:
+                print(f"[DEBUG] 'vascular_age' not found in CV response")
     else:
         df['cardiovascular_age'] = None
 
@@ -1741,6 +1746,10 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
             on='day',
             how='left'
         )
+        if not resilience_df.empty:
+            print(f"[DEBUG] Resilience columns: {resilience_df.columns}")
+            if 'level' in resilience_df.columns:
+                print(f"[DEBUG] Resilience levels: {resilience_df['level'].unique()}")
     else:
         df['resilience_score'] = None
     
