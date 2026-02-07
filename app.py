@@ -366,8 +366,20 @@ TWIN_B_COLOR = "#be123c"  # Rose red - professional
 
 # Study Configuration
 TWIN_LABELS = {
-    'twin_a': {'name': 'Chris (CP)', 'role': 'IHT Intervention', 'color': TWIN_A_COLOR, 'timezone': 'Asia/Dubai'},
-    'twin_b': {'name': 'Graham (GP)', 'role': 'Control', 'color': TWIN_B_COLOR, 'timezone': 'Europe/London'},
+    'twin_a': {
+        'name': 'Chris (CP)', 
+        'role': 'IHT Intervention', 
+        'color': TWIN_A_COLOR, 
+        'timezone': 'Asia/Dubai',
+        'hr_zones': {'lt1': 135, 'lt2': 158} # Placeholder thresholds for zones
+    },
+    'twin_b': {
+        'name': 'Graham (GP)', 
+        'role': 'Control', 
+        'color': TWIN_B_COLOR, 
+        'timezone': 'Europe/London',
+        'hr_zones': {'lt1': 130, 'lt2': 155} # Placeholder thresholds for zones
+    },
 }
 
 # IHT Session Log (for annotations)
@@ -1926,6 +1938,25 @@ def create_intraday_comparison_chart(
     """
     fig = go.Figure()
     
+    # Add HR Zone Background Bands for Twin A (Intervention)
+    # Only if Twin A data is present or requested context
+    zones = TWIN_LABELS['twin_a'].get('hr_zones')
+    if zones:
+        # Zone 2 (Aerobic Base) - up to LT1
+        fig.add_hrect(
+            y0=0, y1=zones['lt1'],
+            fillcolor=TWIN_A_COLOR, opacity=0.05,
+            layer="below", line_width=0,
+            annotation_text="Z1/Z2", annotation_position="left bottom"
+        )
+        # Zone 5 (Anaerobic) - above LT2
+        fig.add_hrect(
+            y0=zones['lt2'], y1=220, # Max HR cap for visual
+            fillcolor="red", opacity=0.05,
+            layer="below", line_width=0,
+            annotation_text=">LT2", annotation_position="left top"
+        )
+    
     has_data = False
     
     def parse_timestamp_to_local(ts_str: str, target_tz: str) -> pd.Timestamp:
@@ -2173,17 +2204,25 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
     else:
         df['cardiovascular_age'] = None
 
-    # Process daily readiness (Skin Temperature)
+    # Process daily readiness (Skin Temperature & Score)
     if raw_data.get('daily_readiness'):
         readiness_df = pd.DataFrame(raw_data['daily_readiness'])
         readiness_df['day'] = pd.to_datetime(readiness_df['day'])
+        
+        # Extract score if available
+        if 'score' in readiness_df.columns:
+            readiness_df['readiness_score'] = readiness_df['score']
+        else:
+            readiness_df['readiness_score'] = None
+            
         df = df.merge(
-            readiness_df[['day', 'temperature_deviation']],
+            readiness_df[['day', 'temperature_deviation', 'readiness_score']],
             on='day',
             how='left'
         )
     else:
         df['temperature_deviation'] = None
+        df['readiness_score'] = None
     
     # Process resilience data
     if raw_data.get('resilience'):
@@ -2325,16 +2364,18 @@ def create_comparative_line_chart(
             font=dict(size=16, color="gray")
         )
     
-    # Add reference line if specified and there's data
-    if show_reference_line and has_data:
-        ref_value, ref_label = show_reference_line
-        fig.add_hline(
-            y=ref_value,
-            line_dash="dash",
-            line_color="orange",
-            annotation_text=ref_label,
-            annotation_position="right"
-        )
+    # Add IHT Session Annotations
+    for session in IHT_SESSIONS:
+        # Check if session date is within data range
+        if df_a['day'].min() <= pd.Timestamp(session['date']) <= df_a['day'].max():
+             fig.add_vline(
+                x=pd.Timestamp(session['date']),
+                line_dash="dot",
+                line_color="green",
+                opacity=0.5,
+                annotation_text=f"IHT {session['session']}",
+                annotation_position="top left"
+            )
     
     # Colors based on theme
     if dark_mode:
@@ -2911,6 +2952,21 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             st.metric("Twin A", f"{round(week_a_hours, 1)}h", f"{int(week_a_cals)} cal")
         with col2:
             st.metric("Twin B", f"{round(week_b_hours, 1)}h", f"{int(week_b_cals)} cal")
+        with col2:
+            st.metric("Avg Skin Temp", 
+                      f"{metrics_b['skin_temp']:.1f}°C" if metrics_b['skin_temp'] is not None else "—")
+        
+        # Readiness Score Chart
+        st.markdown("#### Readiness & Recovery")
+        if not df_a.empty and not df_b.empty:
+            fig_readiness = create_dual_axis_chart(
+                df_a, df_b,
+                'readiness_score', 'temperature_deviation',
+                "Daily Readiness Score vs Skin Temperature",
+                "Readiness Score (0-100)", "Temp Deviation (°C)",
+                dark_mode=is_dark
+            )
+            st.plotly_chart(fig_readiness, use_container_width=True)
         with col3:
             st.metric("Diff (A - B)", 
                       f"{'+' if diff_hours >= 0 else ''}{diff_hours}h",
@@ -3276,6 +3332,17 @@ def render_main_content():
                 dark_mode=is_dark
             )
             st.plotly_chart(fig_resilience, use_container_width=True)
+
+        # Row 5 - Readiness Score (New for CZ IHT)
+        st.write("**Readiness & Recovery**")
+        fig_readiness = create_dual_axis_chart(
+            df_a, df_b,
+            'readiness_score', 'temperature_deviation',
+            "Daily Readiness Score vs Skin Temperature",
+            "Readiness Score (0-100)", "Temp Deviation (°C)",
+            dark_mode=is_dark
+        )
+        st.plotly_chart(fig_readiness, use_container_width=True)
     
     # ==========================================================================
     # TAB 3: WORKOUTS
@@ -3397,11 +3464,40 @@ def render_main_content():
             else:
                 st.info("No data available for Twin B")
     
-    # ==========================================================================
-    # TAB 6: SETTINGS
-    # ==========================================================================
-    with tab_settings:
-        st.markdown("### Settings")
+    with tab_raw:
+        st.markdown("### Raw Data Export")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown(f"#### {TWIN_LABELS['twin_a']['name']}")
+            if not df_a.empty:
+                csv_a = df_a.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "Download CSV",
+                    csv_a,
+                    f"twin_a_data_{start_date}_{end_date}.csv",
+                    "text/csv",
+                    key='download-csv-a'
+                )
+                st.dataframe(df_a, use_container_width=True, height=400)
+            else:
+                st.info("No data available")
+                
+        with col2:
+            st.markdown(f"#### {TWIN_LABELS['twin_b']['name']}")
+            if not df_b.empty:
+                csv_b = df_b.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "Download CSV",
+                    csv_b,
+                    f"twin_b_data_{start_date}_{end_date}.csv",
+                    "text/csv",
+                    key='download-csv-b'
+                )
+                st.dataframe(df_b, use_container_width=True, height=400)
+            else:
+                st.info("No data available")
         
         # Load saved credentials
         saved_creds = load_credentials()
