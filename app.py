@@ -1411,7 +1411,8 @@ def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> Tupl
 
 def fetch_intraday_heartrate(
     token: str,
-    hours: int = 4
+    hours: int = 4,
+    debug_info: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """
     Fetch intraday heart rate data for the last N hours.
@@ -1419,14 +1420,20 @@ def fetch_intraday_heartrate(
     Args:
         token: OAuth2 access token
         hours: Number of hours to fetch (default 4)
+        debug_info: Optional dict to populate with debug information
     
     Returns:
         List of heart rate readings with timestamp and bpm
     """
+    if debug_info is None:
+        debug_info = {}
+    
     if not token:
+        debug_info['error'] = 'No token provided'
         return []
     
     if not check_rate_limit():
+        debug_info['error'] = 'Rate limited'
         return []
     
     end_time = datetime.now()
@@ -1434,7 +1441,7 @@ def fetch_intraday_heartrate(
     
     url = f"{OURA_API_BASE}/usercollection/heartrate"
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': f'Bearer {token[:10]}...',  # Truncated for logging
         'Content-Type': 'application/json'
     }
     params = {
@@ -1442,19 +1449,44 @@ def fetch_intraday_heartrate(
         'end_datetime': end_time.isoformat()
     }
     
+    # Store debug info
+    debug_info['request'] = {
+        'url': url,
+        'start_datetime': start_time.isoformat(),
+        'end_datetime': end_time.isoformat(),
+        'hours_requested': hours
+    }
+    
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response = requests.get(
+            url, 
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}, 
+            params=params, 
+            timeout=30
+        )
+        
+        debug_info['response'] = {
+            'status_code': response.status_code,
+            'reason': response.reason
+        }
         
         if response.status_code == 200:
             data = response.json()
-            return data.get('data', [])
+            result = data.get('data', [])
+            debug_info['response']['data_points'] = len(result)
+            if result:
+                debug_info['response']['first_timestamp'] = result[0].get('timestamp', 'N/A')
+                debug_info['response']['last_timestamp'] = result[-1].get('timestamp', 'N/A')
+            return result
         else:
+            debug_info['response']['error_body'] = response.text[:500] if response.text else 'No body'
             return []
             
-    except requests.RequestException:
+    except requests.RequestException as e:
+        debug_info['error'] = f'Request exception: {str(e)}'
         return []
 
-def get_intraday_data_for_twin(twin: str, hours: int = 4) -> List[Dict[str, Any]]:
+def get_intraday_data_for_twin(twin: str, hours: int = 4) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Get intraday heart rate data for a twin from the Oura API.
     
@@ -1463,13 +1495,17 @@ def get_intraday_data_for_twin(twin: str, hours: int = 4) -> List[Dict[str, Any]
         hours: Number of hours of data
     
     Returns:
-        List of heart rate readings
+        Tuple of (List of heart rate readings, debug info dict)
     """
+    debug_info = {'twin': twin, 'hours': hours}
     token = st.session_state.get(f'{twin}_token')
     if not token:
-        return []
+        debug_info['error'] = 'No token in session state'
+        return [], debug_info
     
-    return fetch_intraday_heartrate(token, hours)
+    debug_info['token_present'] = True
+    data = fetch_intraday_heartrate(token, hours, debug_info)
+    return data, debug_info
 
 def create_intraday_comparison_chart(
     data_a: List[Dict[str, Any]],
@@ -2663,11 +2699,49 @@ def render_main_content():
             st.caption("Heart rate data: **Twin A** (🔵) vs **Twin B** (🔴)")
         
         exercise_hours = 16
-        intraday_a = get_intraday_data_for_twin('twin_a', exercise_hours) if twin_a_connected else []
-        intraday_b = get_intraday_data_for_twin('twin_b', exercise_hours) if twin_b_connected else []
+        intraday_a, debug_a = get_intraday_data_for_twin('twin_a', exercise_hours) if twin_a_connected else ([], {'twin': 'twin_a', 'error': 'Not connected'})
+        intraday_b, debug_b = get_intraday_data_for_twin('twin_b', exercise_hours) if twin_b_connected else ([], {'twin': 'twin_b', 'error': 'Not connected'})
         
         fig_exercise = create_intraday_comparison_chart(intraday_a, intraday_b, dark_mode=is_dark)
         st.plotly_chart(fig_exercise, use_container_width=True)
+        
+        # API Debug Expander for Heart Rate Data
+        with st.expander("🔍 Heart Rate API Debug", expanded=False):
+            debug_col_a, debug_col_b = st.columns(2)
+            
+            with debug_col_a:
+                st.markdown("**Twin A API Response:**")
+                if 'error' in debug_a:
+                    st.error(f"Error: {debug_a['error']}")
+                if 'request' in debug_a:
+                    req = debug_a['request']
+                    st.caption(f"📤 **Request:**")
+                    st.code(f"URL: {req.get('url', 'N/A')}\nStart: {req.get('start_datetime', 'N/A')}\nEnd: {req.get('end_datetime', 'N/A')}\nHours: {req.get('hours_requested', 'N/A')}", language="text")
+                if 'response' in debug_a:
+                    resp = debug_a['response']
+                    status = resp.get('status_code', 'N/A')
+                    icon = "✅" if status == 200 else "❌"
+                    st.caption(f"📥 **Response:** {icon}")
+                    st.code(f"Status: {status} {resp.get('reason', '')}\nData Points: {resp.get('data_points', 'N/A')}\nFirst: {resp.get('first_timestamp', 'N/A')}\nLast: {resp.get('last_timestamp', 'N/A')}", language="text")
+                    if 'error_body' in resp:
+                        st.error(f"Error body: {resp['error_body'][:200]}")
+            
+            with debug_col_b:
+                st.markdown("**Twin B API Response:**")
+                if 'error' in debug_b:
+                    st.error(f"Error: {debug_b['error']}")
+                if 'request' in debug_b:
+                    req = debug_b['request']
+                    st.caption(f"📤 **Request:**")
+                    st.code(f"URL: {req.get('url', 'N/A')}\nStart: {req.get('start_datetime', 'N/A')}\nEnd: {req.get('end_datetime', 'N/A')}\nHours: {req.get('hours_requested', 'N/A')}", language="text")
+                if 'response' in debug_b:
+                    resp = debug_b['response']
+                    status = resp.get('status_code', 'N/A')
+                    icon = "✅" if status == 200 else "❌"
+                    st.caption(f"📥 **Response:** {icon}")
+                    st.code(f"Status: {status} {resp.get('reason', '')}\nData Points: {resp.get('data_points', 'N/A')}\nFirst: {resp.get('first_timestamp', 'N/A')}\nLast: {resp.get('last_timestamp', 'N/A')}", language="text")
+                    if 'error_body' in resp:
+                        st.error(f"Error body: {resp['error_body'][:200]}")
         
         # Quick stats
         if intraday_a or intraday_b:
