@@ -1503,12 +1503,30 @@ def fetch_polar_exercise_data(token: str, url: str) -> Optional[Dict[str, Any]]:
 def get_polar_workout_data(twin: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Get recent Polar workouts for a twin with debug info."""
     token = st.session_state.get(f'polar_{twin}_token')
+    user_id = st.session_state.get(f'polar_{twin}_user_id')
     
     if not token:
         return [], {'error': 'No token found in session'}
         
-    # Get available exercises (last 30 days)
-    exercise_urls, debug_info = get_polar_available_exercises(token)
+    debug_info = {}
+    
+    # 1. Check Registration Status
+    if user_id:
+        try:
+            reg_resp = requests.get(
+                f"{POLAR_API_BASE}/users/{user_id}",
+                headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'}
+            )
+            debug_info['user_registration'] = {
+                'status_code': reg_resp.status_code,
+                'data': reg_resp.json() if reg_resp.status_code == 200 else reg_resp.text
+            }
+        except Exception as e:
+            debug_info['user_registration_error'] = str(e)
+
+    # 2. Get available exercises (last 30 days)
+    exercise_urls, list_debug = get_polar_available_exercises(token)
+    debug_info.update(list_debug)
     
     workouts = []
     # Limit to last 5 to avoid slow loading
