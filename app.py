@@ -2137,27 +2137,33 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         
         # Extract average SpO2 from nested structure
         def extract_spo2(row):
-            # Try multiple field names that Oura API might use
-            # 1. spo2_percentage.average (documented structure)
-            if 'spo2_percentage' in row.index:
-                val = row['spo2_percentage']
-                if isinstance(val, dict) and 'average' in val:
-                    return val.get('average')
-                if isinstance(val, (int, float)):
-                    return val
-            
-            # 2. average_blood_oxygen (alternate field name)
-            if 'average_blood_oxygen' in row.index:
-                return row['average_blood_oxygen']
-            
-            # 3. breathing_disturbance_index might exist but we need SpO2
-            # Check for any field containing 'oxygen' or 'spo2'
-            for col in row.index:
-                if 'oxygen' in col.lower() or 'spo2' in col.lower():
-                    val = row[col]
+            try:
+                # 1. spo2_percentage (documented structure often returns dict)
+                if 'spo2_percentage' in row.index:
+                    val = row['spo2_percentage']
                     if isinstance(val, dict):
-                        return val.get('average', val.get('value'))
+                        return val.get('average')
                     if isinstance(val, (int, float)):
+                        return val
+                
+                # 2. average_blood_oxygen (alternate field name)
+                if 'average_blood_oxygen' in row.index:
+                    val = row['average_blood_oxygen']
+                    if isinstance(val, (int, float)):
+                        return val
+                
+                # 3. Fallback: Search for any 'spo2' or 'oxygen' field
+                for col in row.index:
+                    if 'oxygen' in col.lower() or 'spo2' in col.lower():
+                        val = row[col]
+                        if isinstance(val, dict):
+                            return val.get('average')
+                        if isinstance(val, (int, float)):
+                            return val
+                            
+                return None
+            except Exception:
+                return None
                         return val
             
             return None
@@ -2484,6 +2490,10 @@ def create_dual_axis_chart(
         Plotly Figure object
     """
     fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # SAFETY CHECK: If DataFrames are None or empty, return empty figure
+    if (df_a is None or df_a.empty) and (df_b is None or df_b.empty):
+        return fig
     
     has_data = False
     
