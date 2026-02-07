@@ -2717,8 +2717,8 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                     intensity = w.get('intensity', 'unknown').title()
                     duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
                     
-                    tooltip = f"Duration: {duration}<br>Calories: {int(w['calories'])} kcal<br>Intensity: {intensity}<br>Avg HR: {hr}"
-                    acts.append(f'<span class="workout-chip" title="{tooltip}">{w["activity"]}</span>')
+                    tooltip_html = f"<strong>Duration:</strong> {duration}<br><strong>Calories:</strong> {int(w['calories'])} kcal<br><strong>Intensity:</strong> {intensity}<br><strong>Avg HR:</strong> {hr}"
+                    acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip">{tooltip_html}</span></div>')
                 
                 twin_a_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
                 twin_a_hours.append(sum(w['duration_hours'] for w in data_a))
@@ -2736,8 +2736,8 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                     intensity = w.get('intensity', 'unknown').title()
                     duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
                     
-                    tooltip = f"Duration: {duration}<br>Calories: {int(w['calories'])} kcal<br>Intensity: {intensity}<br>Avg HR: {hr}"
-                    acts.append(f'<span class="workout-chip" title="{tooltip}">{w["activity"]}</span>')
+                    tooltip_html = f"<strong>Duration:</strong> {duration}<br><strong>Calories:</strong> {int(w['calories'])} kcal<br><strong>Intensity:</strong> {intensity}<br><strong>Avg HR:</strong> {hr}"
+                    acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip">{tooltip_html}</span></div>')
                 
                 twin_b_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
                 twin_b_hours.append(sum(w['duration_hours'] for w in data_b))
@@ -2767,6 +2767,7 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             .total-col {{ font-weight: 600; background-color: {total_bg}; text-align: center; }}
             
             /* Tooltip container */
+            /* Tooltip container */
             .workout-chip {{
                 display: inline-block;
                 padding: 2px 6px;
@@ -2776,8 +2777,50 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                 border: 1px dashed {border_color};
                 cursor: help;
                 font-size: 0.75rem;
-                position: relative;
+                position: relative; /* Anchor for tooltip */
             }}
+            
+            /* The actual tooltip text */
+            .workout-chip .workout-tooltip {{
+                visibility: hidden;
+                width: 200px;
+                background-color: #333;
+                color: #fff;
+                text-align: left;
+                border-radius: 6px;
+                padding: 8px;
+                position: absolute;
+                z-index: 100;
+                bottom: 125%; /* Position above */
+                left: 50%;
+                margin-left: -100px; /* Center */
+                opacity: 0;
+                transition: opacity 0s; /* Immediate */
+                font-size: 0.75rem;
+                font-weight: normal;
+                line-height: 1.4;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                pointer-events: none; /* Prevent flickering */
+            }}
+            
+            /* Arrow */
+            .workout-chip .workout-tooltip::after {{
+                content: "";
+                position: absolute;
+                top: 100%;
+                left: 50%;
+                margin-left: -5px;
+                border-width: 5px;
+                border-style: solid;
+                border-color: #333 transparent transparent transparent;
+            }}
+
+            /* Show the tooltip text when you mouse over the tooltip container */
+            .workout-chip:hover .workout-tooltip {{
+                visibility: visible;
+                opacity: 1;
+            }}
+            
             .activity-cell {{
                 display: flex;
                 flex-wrap: wrap;
