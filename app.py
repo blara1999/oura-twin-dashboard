@@ -380,7 +380,7 @@ TWIN_LABELS = {
         'role': 'Control', 
         'color': TWIN_B_COLOR, 
         'timezone': 'Europe/London',
-        'hr_zones': {'lt1': 130, 'lt2': 155} # Placeholder thresholds for zones
+        'hr_zones': {'lt1': 124, 'lt2': 141} # Actual BPS thresholds
     },
 }
 
@@ -397,7 +397,7 @@ st.set_page_config(
     page_title="Twin Physiology Monitor",
     page_icon="▲",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # =============================================================================
@@ -1931,14 +1931,14 @@ def create_intraday_comparison_chart(
             y0=0, y1=zones['lt1'],
             fillcolor=TWIN_A_COLOR, opacity=0.05,
             layer="below", line_width=0,
-            annotation_text="Z1/Z2", annotation_position="left bottom"
+            annotation_text="CP Z1/Z2", annotation_position="left bottom"
         )
         # Zone 5 (Anaerobic) - above LT2
         fig.add_hrect(
             y0=zones['lt2'], y1=220, # Max HR cap for visual
             fillcolor="red", opacity=0.05,
             layer="below", line_width=0,
-            annotation_text=">LT2", annotation_position="left top"
+            annotation_text="CP >LT2", annotation_position="left top"
         )
     
     has_data = False
@@ -2295,6 +2295,7 @@ def get_latest_metrics(df: pd.DataFrame) -> Dict[str, Any]:
         'respiratory_rate': safe_get(latest.get('average_breath')),
         'sleep_score': safe_get(latest.get('sleep_score')),
         'skin_temp': safe_get(latest.get('temperature_deviation')),
+        'readiness_score': safe_get(latest.get('readiness_score')),
         'last_sync': safe_get(latest.get('day'))
     }
 
@@ -3081,27 +3082,31 @@ def render_main_content():
         
         # KPI METRICS (Latest Readings)
         st.markdown("### Latest Readings")
-        c1, c2, c3, c4, c5 = st.columns(5)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
         
         with c1:
+            st.write("**Readiness**")
+            render_kpi_metric("READY", metrics_a.get('readiness_score'), metrics_b.get('readiness_score'), "/100")
+        
+        with c2:
             st.write("**SpO2 %**")
             render_kpi_metric("SPO2", metrics_a['spo2'], metrics_b['spo2'], "%", warning_threshold=90, warning_direction="below")
         
-        with c2:
+        with c3:
             st.write("**Resting HR**")
             render_kpi_metric("RHR", metrics_a['rhr'], metrics_b['rhr'], " bpm")
         
-        with c3:
+        with c4:
             st.write("**HRV**")
             render_kpi_metric("HRV", metrics_a['hrv'], metrics_b['hrv'], " ms")
         
-        with c4:
+        with c5:
             st.write("**Resp Rate**")
             render_kpi_metric("RESP", metrics_a['respiratory_rate'], metrics_b['respiratory_rate'], "")
         
-        with c5:
-            st.write("**Sleep**")
-            render_kpi_metric("SCORE", metrics_a['sleep_score'], metrics_b['sleep_score'], "")
+        with c6:
+            st.write("**Sleep Score**")
+            render_kpi_metric("SLEEP", metrics_a['sleep_score'], metrics_b['sleep_score'], "/100")
         
         st.divider()
         
@@ -3433,25 +3438,7 @@ def render_main_content():
     # TAB 5: RAW DATA
     # ==========================================================================
     with tab_data:
-        st.markdown("### Raw Data Tables")
-        data_tab1, data_tab2 = st.tabs([f"{TWIN_LABELS['twin_a']['name']} Data", f"{TWIN_LABELS['twin_b']['name']} Data"])
-        
-        with data_tab1:
-            if not df_a.empty:
-                display_df_a = df_a.copy()
-                st.dataframe(display_df_a, use_container_width=True)
-            else:
-                st.info(f"No data available for {TWIN_LABELS['twin_a']['name']}")
-        
-        with data_tab2:
-            if not df_b.empty:
-                display_df_b = df_b.copy()
-                st.dataframe(display_df_b, use_container_width=True)
-            else:
-                st.info(f"No data available for {TWIN_LABELS['twin_b']['name']}")
-    
-    with tab_data:
-        st.markdown("### Raw Data Export")
+        st.markdown("### Raw Data")
         
         col1, col2 = st.columns(2)
         
@@ -3460,70 +3447,31 @@ def render_main_content():
             if not df_a.empty:
                 csv_a = df_a.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    "Download CSV",
+                    "📥 Download CSV",
                     csv_a,
                     f"twin_a_data_{start_date}_{end_date}.csv",
                     "text/csv",
                     key='download-csv-a'
                 )
-                st.dataframe(df_a, use_container_width=True, height=400)
+                st.dataframe(df_a, use_container_width=True, height=500)
             else:
-                st.info("No data available")
+                st.info(f"No data available for {TWIN_LABELS['twin_a']['name']}")
                 
         with col2:
             st.markdown(f"#### {TWIN_LABELS['twin_b']['name']}")
             if not df_b.empty:
                 csv_b = df_b.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    "Download CSV",
+                    "📥 Download CSV",
                     csv_b,
                     f"twin_b_data_{start_date}_{end_date}.csv",
                     "text/csv",
                     key='download-csv-b'
                 )
-                st.dataframe(df_b, use_container_width=True, height=400)
+                st.dataframe(df_b, use_container_width=True, height=500)
             else:
-                st.info("No data available")
+                st.info(f"No data available for {TWIN_LABELS['twin_b']['name']}")
         
-        # Load saved credentials
-        saved_creds = load_credentials()
-        
-        # Twin Connections
-        col_twin_a, col_twin_b = st.columns(2)
-        
-        with col_twin_a:
-            st.markdown(f"**{TWIN_LABELS['twin_a']['name']} Connection**")
-            if twin_a_connected:
-                st.success("✅ Connected")
-                if st.button(f"Disconnect {TWIN_LABELS['twin_a']['name']}", key="disconnect_a_tab", use_container_width=True):
-                    st.session_state.twin_a_token = None
-                    st.session_state.twin_a_refresh_token = None
-                    remove_twin_tokens('twin_a')
-                    st.rerun()
-            else:
-                st.error("❌ Not Connected")
-                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
-                    auth_url = get_authorization_url('twin_a')
-                    st.link_button(f"Connect {TWIN_LABELS['twin_a']['name']}", auth_url, use_container_width=True)
-                else:
-                    st.caption("Configure API credentials below first")
-        
-        with col_twin_b:
-            st.markdown(f"**{TWIN_LABELS['twin_b']['name']} Connection**")
-            if twin_b_connected:
-                st.success("✅ Connected")
-                if st.button(f"Disconnect {TWIN_LABELS['twin_b']['name']}", key="disconnect_b_tab", use_container_width=True):
-                    st.session_state.twin_b_token = None
-                    st.session_state.twin_b_refresh_token = None
-                    remove_twin_tokens('twin_b')
-                    st.rerun()
-            else:
-                st.error("❌ Not Connected")
-                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
-                    auth_url = get_authorization_url('twin_b')
-                    st.link_button(f"Connect {TWIN_LABELS['twin_b']['name']}", auth_url, use_container_width=True)
-                else:
-                    st.caption("Configure API credentials below first")
         
     with tab_settings:
         st.markdown("### Dashboard Configuration")
