@@ -19,9 +19,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import date, datetime, timedelta, time
+from datetime import date, datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import time as time_module
 import calendar
 from zoneinfo import ZoneInfo
 from urllib.parse import urlencode, parse_qs
