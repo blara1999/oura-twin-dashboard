@@ -1459,37 +1459,32 @@ def fetch_polar_exercises(token: str) -> List[Dict[str, Any]]:
 # BUT, we need `user_id`.
 # Let's ensure we have `polar_twin_x_user_id`.
 
-def get_polar_available_exercises(token: str, user_id: str) -> List[str]:
-    """Get list of available exercise URLs via transaction (peek only)."""
-    if not user_id:
-        return []
-        
+def get_polar_available_exercises(token: str) -> Tuple[List[str], Dict[str, Any]]:
+    """Get list of available exercise URLs for the last 30 days."""
     headers = {
         'Authorization': f'Bearer {token}',
         'Accept': 'application/json'
     }
     
-    # 1. Create transaction
+    debug = {'url': f"{POLAR_API_BASE}/exercises", 'status': None, 'response': None, 'error': None}
+    
     try:
-        response = requests.post(f"{POLAR_API_BASE}/users/{user_id}/exercise-transactions", headers=headers)
-        if response.status_code == 201:
+        # GET /v3/exercises returns exercise summaries for the last 30 days
+        response = requests.get(f"{POLAR_API_BASE}/exercises", headers=headers)
+        debug['status'] = response.status_code
+        
+        if response.status_code == 200:
             data = response.json()
-            transaction_id = data.get('transaction-id')
-            resource_url = data.get('resource-uri')
-            
-            # 2. List exercises in transaction
-            if resource_url:
-                list_resp = requests.get(resource_url, headers=headers)
-                if list_resp.status_code == 200:
-                    exercises = list_resp.json().get('exercises', [])
-                    # We DO NOT commit, to leave data for other apps (or next refresh)
-                    return exercises
-        elif response.status_code == 204:
-            # No content = no new data
-            return []
-    except Exception:
-        pass
-    return []
+            debug['response'] = data
+            # Response is a list of exercise summaries, each with a 'resource-uri'
+            exercises = [ex.get('resource-uri') for ex in data if ex.get('resource-uri')]
+            return exercises, debug
+        else:
+            debug['response'] = response.text
+            return [], debug
+    except Exception as e:
+        debug['error'] = str(e)
+        return [], debug
 
 def fetch_polar_exercise_data(token: str, url: str) -> Optional[Dict[str, Any]]:
     """Fetch full exercise data from a specific exercise URL."""
@@ -1505,16 +1500,15 @@ def fetch_polar_exercise_data(token: str, url: str) -> Optional[Dict[str, Any]]:
         pass
     return None
 
-def get_polar_workout_data(twin: str) -> List[Dict[str, Any]]:
-    """Get recent Polar workouts for a twin."""
+def get_polar_workout_data(twin: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Get recent Polar workouts for a twin with debug info."""
     token = st.session_state.get(f'polar_{twin}_token')
-    user_id = st.session_state.get(f'polar_{twin}_user_id')
     
-    if not token or not user_id:
-        return []
+    if not token:
+        return [], {'error': 'No token found in session'}
         
-    # Get available exercises (peek)
-    exercise_urls = get_polar_available_exercises(token, str(user_id))
+    # Get available exercises (last 30 days)
+    exercise_urls, debug_info = get_polar_available_exercises(token)
     
     workouts = []
     # Limit to last 5 to avoid slow loading
@@ -1523,7 +1517,7 @@ def get_polar_workout_data(twin: str) -> List[Dict[str, Any]]:
         if data:
             workouts.append(data)
             
-    return workouts
+    return workouts, debug_info
 
 def parse_polar_samples(samples: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
     """Parse Polar sample data strings into lists."""
@@ -3402,7 +3396,7 @@ def render_main_content():
             
             with col_list_a:
                 if is_polar_token_valid('twin_a'):
-                    workouts_a = get_polar_workout_data('twin_a')
+                    workouts_a, debug_a = get_polar_workout_data('twin_a')
                     if workouts_a:
                         for w in workouts_a:
                             w_date = w.get('start_time', '')[:10]
@@ -3413,12 +3407,16 @@ def render_main_content():
                                 st.json(w)
                     else:
                         st.info("No recent Polar workouts found.")
+                    
+                    with st.expander("🛠️ Polar A Debug"):
+                        st.json(debug_a)
+                        st.caption("Tip: Polar only shares workouts uploaded AFTER you connected this specific dashboard.")
                 else:
                     st.caption("Connect Twin A to see workouts")
             
             with col_list_b:
                 if is_polar_token_valid('twin_b'):
-                    workouts_b = get_polar_workout_data('twin_b')
+                    workouts_b, debug_b = get_polar_workout_data('twin_b')
                     if workouts_b:
                         for w in workouts_b:
                             w_date = w.get('start_time', '')[:10]
@@ -3429,6 +3427,10 @@ def render_main_content():
                                 st.json(w)
                     else:
                         st.info("No recent Polar workouts found.")
+                    
+                    with st.expander("🛠️ Polar B Debug"):
+                        st.json(debug_b)
+                        st.caption("Tip: Polar only shares workouts uploaded AFTER you connected this specific dashboard.")
                 else:
                     st.caption("Connect Twin B to see workouts")
         else:
