@@ -1653,6 +1653,7 @@ def fetch_oura_data(
     token: str,
     start_date: date,
     end_date: date
+    check_limit: bool = False
 ) -> Optional[Dict[str, Any]]:
     """
     Fetch data from the Oura API V2.
@@ -1662,6 +1663,7 @@ def fetch_oura_data(
         token: OAuth2 access token
         start_date: Start date for data range
         end_date: End date for data range
+        check_limit: Whether to check rate limit (default False, as it uses session state)
     
     Returns:
         API response data or None if failed
@@ -1669,9 +1671,12 @@ def fetch_oura_data(
     if not token:
         return None
     
-    if not check_rate_limit():
-        st.warning("Rate limit reached. Please wait before making more requests.")
-        return None
+    # Only check rate limit if explicitly requested (e.g., single calls)
+    # Threaded calls MUST handle rate limiting in the main thread
+    if check_limit:
+        if not check_rate_limit():
+            st.warning("Rate limit reached. Please wait before making more requests.")
+            return None
     
     url = f"{OURA_API_BASE}{endpoint}"
     headers = {
@@ -1742,10 +1747,16 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
     }
 
     # Parallel execution with ThreadPoolExecutor
-    # Oura rate limit is 5000/5min, so 6 concurrent requests per user is fine
+    # Check rate limit for all requests UPFRONT in the main thread
+    # This avoids accessing st.session_state inside threads which causes errors
+    for _ in endpoints:
+        if not check_rate_limit():
+            st.warning("Rate limit reached. Data fetching paused.")
+            return data
+
     with ThreadPoolExecutor(max_workers=6) as executor:
         # Create a future for each endpoint
-        # fetch_oura_data signature: (endpoint, token, start_date, end_date)
+        # check_limit=False is default, preventing thread issues
         future_to_key = {
             executor.submit(fetch_oura_data, url, token, start_date, end_date): key 
             for key, url in endpoints.items()
