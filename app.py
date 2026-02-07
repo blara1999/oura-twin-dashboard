@@ -1793,6 +1793,9 @@ def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> Tupl
             'duration_hours': duration_hours,
             'calories': workout.get('calories') or 0,
             'avg_heart_rate': workout.get('average_heart_rate'),
+            'max_heart_rate': workout.get('max_heart_rate'),
+            'distance': workout.get('distance'),
+            'source': workout.get('source', 'unknown'),
             'intensity': workout.get('intensity', 'unknown')
         })
     
@@ -2713,12 +2716,20 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             if data_a:
                 acts = []
                 for w in data_a:
-                    hr = f"{int(w['avg_heart_rate'])} bpm" if w.get('avg_heart_rate') else "—"
-                    intensity = w.get('intensity', 'unknown').title()
+                    avg_hr = int(w['avg_heart_rate']) if w.get('avg_heart_rate') else "—"
+                    max_hr = int(w['max_heart_rate']) if w.get('max_heart_rate') else "—"
+                    dist_km = f"{w['distance']/1000:.2f} km" if w.get('distance') else ""
+                    source = w.get('source', 'unknown').replace('_', ' ').title()
                     duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
                     
-                    tooltip_html = f"<strong>Duration:</strong> {duration}<br><strong>Calories:</strong> {int(w['calories'])} kcal<br><strong>Intensity:</strong> {intensity}<br><strong>Avg HR:</strong> {hr}"
-                    acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip">{tooltip_html}</span></div>')
+                    tooltip_html = f"""
+                    <strong>Duration:</strong> {duration}<br>
+                    <strong>Calories:</strong> {int(w['calories'])} kcal<br>
+                    <strong>Heart Rate:</strong> {avg_hr} avg / {max_hr} max<br>
+                    {f'<strong>Distance:</strong> {dist_km}<br>' if dist_km else ''}
+                    <strong>Source:</strong> {source}
+                    """
+                    acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip twin-a-tooltip">{tooltip_html}</span></div>')
                 
                 twin_a_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
                 twin_a_hours.append(sum(w['duration_hours'] for w in data_a))
@@ -2732,12 +2743,20 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
             if data_b:
                 acts = []
                 for w in data_b:
-                    hr = f"{int(w['avg_heart_rate'])} bpm" if w.get('avg_heart_rate') else "—"
-                    intensity = w.get('intensity', 'unknown').title()
+                    avg_hr = int(w['avg_heart_rate']) if w.get('avg_heart_rate') else "—"
+                    max_hr = int(w['max_heart_rate']) if w.get('max_heart_rate') else "—"
+                    dist_km = f"{w['distance']/1000:.2f} km" if w.get('distance') else ""
+                    source = w.get('source', 'unknown').replace('_', ' ').title()
                     duration = f"{int(w['duration_hours'])}h {int((w['duration_hours']*60)%60)}m"
                     
-                    tooltip_html = f"<strong>Duration:</strong> {duration}<br><strong>Calories:</strong> {int(w['calories'])} kcal<br><strong>Intensity:</strong> {intensity}<br><strong>Avg HR:</strong> {hr}"
-                    acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip">{tooltip_html}</span></div>')
+                    tooltip_html = f"""
+                    <strong>Duration:</strong> {duration}<br>
+                    <strong>Calories:</strong> {int(w['calories'])} kcal<br>
+                    <strong>Heart Rate:</strong> {avg_hr} avg / {max_hr} max<br>
+                    {f'<strong>Distance:</strong> {dist_km}<br>' if dist_km else ''}
+                    <strong>Source:</strong> {source}
+                    """
+                    acts.append(f'<div class="workout-chip">{w["activity"]}<span class="workout-tooltip twin-b-tooltip">{tooltip_html}</span></div>')
                 
                 twin_b_activities.append(f'<div class="activity-cell">{" ".join(acts)}</div>')
                 twin_b_hours.append(sum(w['duration_hours'] for w in data_b))
@@ -2780,27 +2799,39 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                 position: relative; /* Anchor for tooltip */
             }}
             
-            /* The actual tooltip text */
+            /* The actual tooltip text - GLASSMORPHISM */
             .workout-chip .workout-tooltip {{
                 visibility: hidden;
-                width: 200px;
-                background-color: #333;
-                color: #fff;
+                width: 220px;
+                background-color: rgba(255, 255, 255, 0.98); /* High contrast white */
+                backdrop-filter: blur(8px);
+                color: #1e293b; /* Dark Slate for readability */
                 text-align: left;
-                border-radius: 6px;
-                padding: 8px;
+                border-radius: 8px;
+                padding: 10px;
                 position: absolute;
                 z-index: 100;
                 bottom: 125%; /* Position above */
                 left: 50%;
-                margin-left: -100px; /* Center */
+                margin-left: -110px; /* Center */
                 opacity: 0;
                 transition: opacity 0s; /* Immediate */
                 font-size: 0.75rem;
                 font-weight: normal;
-                line-height: 1.4;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                line-height: 1.5;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
                 pointer-events: none; /* Prevent flickering */
+                border: 2px solid transparent; /* Placeholder for twin color */
+            }}
+            
+            /* Twin-specific tooltip borders */
+            .workout-chip .workout-tooltip.twin-a-tooltip {{
+                border-color: {twin_a_bg}; /* Blueish */
+                border-left-width: 4px;
+            }}
+            .workout-chip .workout-tooltip.twin-b-tooltip {{
+                border-color: {twin_b_bg}; /* Pinkish */
+                border-left-width: 4px;
             }}
             
             /* Arrow */
@@ -2809,10 +2840,10 @@ def render_workout_comparison(start_date: date, end_date: date, dark_mode: bool 
                 position: absolute;
                 top: 100%;
                 left: 50%;
-                margin-left: -5px;
-                border-width: 5px;
+                margin-left: -6px;
+                border-width: 6px;
                 border-style: solid;
-                border-color: #333 transparent transparent transparent;
+                border-color: rgba(255, 255, 255, 0.98) transparent transparent transparent;
             }}
 
             /* Show the tooltip text when you mouse over the tooltip container */
