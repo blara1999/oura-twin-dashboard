@@ -61,8 +61,10 @@ gcloud run deploy oura-dashboard \
   --image gcr.io/PROJECT_ID/oura-dashboard \
   --platform managed \
   --region us-central1 \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --session-affinity
 ```
+> **IMPORTANT**: The `--session-affinity` flag is CRITICAL for multi-instance deployments to ensure users stay logged in.
 
 ### 2. Configure Environment Variables
 Cloud Run uses environment variables for configuration. Set these in the Cloud Run console or via CLI:
@@ -75,10 +77,16 @@ Cloud Run uses environment variables for configuration. Set these in the Cloud R
 | `POLAR_CLIENT_ID` | Polar OAuth Client ID |
 | `POLAR_CLIENT_SECRET` | Polar OAuth Client Secret |
 | `POLAR_REDIRECT_URI` | Your Cloud Run URL |
-| `AUTHORIZED_USER_PASSWORD` | Password for dashboard login |
-| `GCS_BUCKET_NAME` | Bucket name for persisting tokens (optional but recommended) |
+| `GCS_BUCKET_NAME` | Bucket name for persisting tokens (required for Cloud Run) |
+| `dr_patrycja` | Password for Dr. Patrycja |
+| `chris` | Password for Chris |
+| `graham` | Password for Graham |
+| `dr_barney` | Password for Dr. Barney |
 
-> **Important:** Ensure your `OURA_REDIRECT_URI` and `POLAR_REDIRECT_URI` match EXACTLY what you registered in the respective developer portals.
+> **Important:** Ensure your `OURA_REDIRECT_URI` and `POLAR_REDIRECT_URI` match EXACTLY what you registered in the respective developer portals and include `https://`.
+
+### 3. Session Affinity (Manual Step)
+If you deploy via Console, you **MUST** enable **Session Affinity** in the "Networking" tab of your service functionality. This ensures that a user's session sticks to one container instance.
 
 ## Project Structure
 

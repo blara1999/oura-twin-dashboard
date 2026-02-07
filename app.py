@@ -20,6 +20,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import date, datetime, timedelta, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time as time_module
 import calendar
 from zoneinfo import ZoneInfo
@@ -1133,12 +1134,12 @@ def refresh_access_token(twin: str) -> bool:
 
 def handle_oauth_callback():
     """Handle OAuth2 callback from URL query parameters."""
-    query_params = st.query_params
+    # Use .get() to avoid KeyErrors
+    code = st.query_params.get('code')
+    state = st.query_params.get('state')
+    error = st.query_params.get('error')
     
-    if 'code' in query_params and 'state' in query_params:
-        code = query_params['code']
-        state = query_params['state']
-        
+    if code and state:
         # Debug info
         saved_creds = load_credentials()
         
@@ -1183,9 +1184,8 @@ def handle_oauth_callback():
             st.info("Make sure you saved your credentials before clicking Connect.")
             st.query_params.clear()
     
-    elif 'error' in query_params:
-        error = query_params.get('error', 'Unknown error')
-        error_desc = query_params.get('error_description', '')
+    elif error:
+        error_desc = st.query_params.get('error_description', '')
         st.error(f"❌ OAuth Error: {error}")
         if error_desc:
             st.error(f"Details: {error_desc}")
@@ -1331,16 +1331,15 @@ def refresh_polar_access_token(twin: str) -> bool:
 
 def handle_polar_oauth_callback():
     """Handle Polar OAuth logic if present in URL."""
-    query_params = st.query_params
+    # Use .get() to avoid KeyErrors
+    code = st.query_params.get('code')
+    state = st.query_params.get('state')
     
-    if 'code' in query_params and 'state' in query_params:
-        state = query_params['state']
+    if code and state:
         
         # Check if it's a Polar state (starts with polar_)
         if not state.startswith('polar_'):
             return  # Let other handlers (Oura) check it
-            
-        code = query_params['code']
         
         # Parse twin from state: polar_{twin}_{hash}
         parts = state.split('_')
@@ -1475,6 +1474,10 @@ def get_polar_available_exercises(token: str) -> Tuple[List[str], Dict[str, Any]
             # Response is a list of exercise summaries, each with a 'resource-uri'
             exercises = [ex.get('resource-uri') for ex in data if ex.get('resource-uri')]
             return exercises, debug
+        elif response.status_code == 204:
+            # No content - this is normal behavior when there are no new exercises
+            debug['response'] = "No Content (204) - No new exercises to sync"
+            return [], debug
         else:
             debug['response'] = response.text
             return [], debug
@@ -1630,7 +1633,7 @@ def fetch_oura_data(
 
 def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str, Any]:
     """
-    Fetch all required data for a twin from multiple endpoints.
+    Fetch all required data for a twin from multiple endpoints in parallel.
     
     Args:
         twin: 'twin_a' or 'twin_b'
@@ -1651,56 +1654,47 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
         'cardiovascular_age': None,
         'daily_readiness': None,
         'resilience': None,
-        '_debug': {}  # Store debug info for API responses
+        '_debug': {}
     }
     
-    # Fetch SpO2 data
-    spo2_response = fetch_oura_data('/usercollection/daily_spo2', token, start_date, end_date)
-    if spo2_response:
-        data['daily_spo2'] = spo2_response.get('data', [])
-        data['_debug']['daily_spo2'] = f"OK: {len(data['daily_spo2'])} records"
-    else:
-        data['_debug']['daily_spo2'] = "No response (403 or empty)"
-    
-    # Fetch detailed sleep data (contains RHR, HRV, respiratory rate)
-    sleep_response = fetch_oura_data('/usercollection/sleep', token, start_date, end_date)
-    if sleep_response:
-        data['sleep'] = sleep_response.get('data', [])
-        data['_debug']['sleep'] = f"OK: {len(data['sleep'])} records"
-    else:
-        data['_debug']['sleep'] = "No response (403 or empty)"
-    
-    # Fetch daily sleep scores
-    daily_sleep_response = fetch_oura_data('/usercollection/daily_sleep', token, start_date, end_date)
-    if daily_sleep_response:
-        data['daily_sleep'] = daily_sleep_response.get('data', [])
-        data['_debug']['daily_sleep'] = f"OK: {len(data['daily_sleep'])} records"
-    else:
-        data['_debug']['daily_sleep'] = "No response (403 or empty)"
-    
-    # Fetch cardiovascular age
-    cv_response = fetch_oura_data('/usercollection/daily_cardiovascular_age', token, start_date, end_date)
-    if cv_response:
-        data['cardiovascular_age'] = cv_response.get('data', [])
-        data['_debug']['cardiovascular_age'] = f"OK: {len(data['cardiovascular_age'])} records"
-    else:
-        data['_debug']['cardiovascular_age'] = "No response (403, needs 'daily' scope, or not available)"
+    # Define endpoints to fetch
+    # Key in data dict -> API endpoint path
+    endpoints = {
+        'daily_spo2': '/usercollection/daily_spo2',
+        'sleep': '/usercollection/sleep',
+        'daily_sleep': '/usercollection/daily_sleep',
+        'cardiovascular_age': '/usercollection/daily_cardiovascular_age',
+        'daily_readiness': '/usercollection/daily_readiness',
+        'resilience': '/usercollection/daily_resilience'
+    }
 
-    # Fetch daily readiness (for skin temperature)
-    readiness_response = fetch_oura_data('/usercollection/daily_readiness', token, start_date, end_date)
-    if readiness_response:
-        data['daily_readiness'] = readiness_response.get('data', [])
-        data['_debug']['daily_readiness'] = f"OK: {len(data['daily_readiness'])} records"
-    else:
-        data['_debug']['daily_readiness'] = "No response (403 or empty)"
-    
-    # Fetch resilience data
-    resilience_response = fetch_oura_data('/usercollection/daily_resilience', token, start_date, end_date)
-    if resilience_response:
-        data['resilience'] = resilience_response.get('data', [])
-        data['_debug']['resilience'] = f"OK: {len(data['resilience'])} records"
-    else:
-        data['_debug']['resilience'] = "No response (403, needs 'daily' scope, or not available)"
+    # Parallel execution with ThreadPoolExecutor
+    # Oura rate limit is 5000/5min, so 6 concurrent requests per user is fine
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        # Create a future for each endpoint
+        # fetch_oura_data signature: (endpoint, token, start_date, end_date)
+        future_to_key = {
+            executor.submit(fetch_oura_data, url, token, start_date, end_date): key 
+            for key, url in endpoints.items()
+        }
+        
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                response = future.result()
+                if response:
+                    data[key] = response.get('data', [])
+                    data['_debug'][key] = f"OK: {len(data[key])} records"
+                else:
+                    data[key] = [] # Ensure list exists to prevent NoneType errors
+                    # Determine specific error message based on key (optional refinement)
+                    if key == 'resilience' or key == 'cardiovascular_age':
+                        data['_debug'][key] = "No response (often 403 for these endpoints)"
+                    else:
+                        data['_debug'][key] = "No response (403 or empty)"
+            except Exception as e:
+                data[key] = []
+                data['_debug'][key] = f"Error: {str(e)}"
     
     return data
 
@@ -2083,14 +2077,18 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
     all_dates = set()
     
     # Collect all unique dates
-    # Collect all unique dates
     for key in ['daily_spo2', 'sleep', 'daily_sleep', 'cardiovascular_age', 'daily_readiness', 'resilience']:
         if raw_data.get(key):
             for record in raw_data[key]:
-                all_dates.add(record.get('day'))
+                # Oura sometimes returns 'day' and sometimes 'date' depending on endpoint version
+                # handle both safely
+                day_val = record.get('day') or record.get('date')
+                if day_val:
+                    all_dates.add(day_val)
     
+    # CRITICAL FIX: Handle empty data
     if not all_dates:
-        return pd.DataFrame()
+        return pd.DataFrame() # Return empty DF so subsequent charts don't crash
     
     df = pd.DataFrame({'day': sorted(list(all_dates))})
     df['day'] = pd.to_datetime(df['day'])
@@ -2911,6 +2909,7 @@ def render_workout_comparison(start_date: date, end_date: date, df_a, df_b, metr
                 gap: 2px;
             }}
         </style>
+        <div style="overflow-x: auto;">
         <table class="workout-table">
             <thead>
                 <tr>
@@ -2952,6 +2951,7 @@ def render_workout_comparison(start_date: date, end_date: date, df_a, df_b, metr
                 </tr>
             </tbody>
         </table>
+        </div>
         '''
         st.markdown(html, unsafe_allow_html=True)
         
