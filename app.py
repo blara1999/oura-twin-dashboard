@@ -3442,7 +3442,7 @@ def render_main_content():
             else:
                 st.info("No data available for Twin B")
     
-    with tab_raw:
+    with tab_data:
         st.markdown("### Raw Data Export")
         
         col1, col2 = st.columns(2)
