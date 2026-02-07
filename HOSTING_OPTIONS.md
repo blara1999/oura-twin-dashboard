@@ -24,6 +24,9 @@ Set these in the Cloud Run service configuration:
 | `OURA_CLIENT_ID` | Oura API OAuth client ID |
 | `OURA_CLIENT_SECRET` | Oura API OAuth client secret |
 | `OURA_REDIRECT_URI` | OAuth redirect URL (your Cloud Run URL) |
+| `POLAR_CLIENT_ID` | Polar API OAuth client ID |
+| `POLAR_CLIENT_SECRET` | Polar API OAuth client secret |
+| `POLAR_REDIRECT_URI` | OAuth redirect URL (your Cloud Run URL) |
 
 ## Local Development
 
