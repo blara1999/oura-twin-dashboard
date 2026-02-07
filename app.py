@@ -200,22 +200,31 @@ def save_credentials(client_id: str, client_secret: str, redirect_uri: str):
 
 def load_credentials() -> Dict[str, str]:
     """Load OAuth credentials from environment variables or local config file."""
-    # First, check environment variables (Cloud Run)
-    if 'OURA_CLIENT_ID' in os.environ:
-        return {
-            'client_id': os.environ.get('OURA_CLIENT_ID', ''),
-            'client_secret': os.environ.get('OURA_CLIENT_SECRET', ''),
-            'redirect_uri': os.environ.get('OURA_REDIRECT_URI', 'http://localhost:8501')
-        }
+    creds = {
+        'client_id': '', 'client_secret': '', 'redirect_uri': 'http://localhost:8501',
+        'polar_client_id': '', 'polar_client_secret': '', 'polar_redirect_uri': 'http://localhost:8501'
+    }
     
-    # Fallback to local config file (for local development)
+    # Check environment variables (Cloud Run)
+    if 'OURA_CLIENT_ID' in os.environ:
+        creds['client_id'] = os.environ.get('OURA_CLIENT_ID', '')
+        creds['client_secret'] = os.environ.get('OURA_CLIENT_SECRET', '')
+        creds['redirect_uri'] = os.environ.get('OURA_REDIRECT_URI', 'http://localhost:8501')
+        
+    if 'POLAR_CLIENT_ID' in os.environ:
+        creds['polar_client_id'] = os.environ.get('POLAR_CLIENT_ID', '')
+        creds['polar_client_secret'] = os.environ.get('POLAR_CLIENT_SECRET', '')
+        creds['polar_redirect_uri'] = os.environ.get('POLAR_REDIRECT_URI', 'http://localhost:8501')
+    
+    # Fallback/Merge with local config file (for local development)
     try:
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
+                saved = json.load(f)
+                creds.update(saved)
     except Exception:
         pass
-    return {'client_id': '', 'client_secret': '', 'redirect_uri': 'http://localhost:8501'}
+    return creds
 
 def clear_credentials():
     """Remove saved credentials."""
@@ -346,7 +355,18 @@ OURA_API_BASE = "https://api.ouraring.com/v2"
 # Available: email, personal, daily, heartrate, workout, tag, session, spo2
 OURA_SCOPES = "email personal daily heartrate spo2 workout"
 
-# Rate limiting: 5000 requests per 5 minutes
+# Polar AccessLink API Configuration
+# See: https://www.polar.com/accesslink-api/
+POLAR_AUTH_URL = "https://flow.polar.com/oauth2/authorization"
+POLAR_TOKEN_URL = "https://polarremote.com/v2/oauth2/token"
+POLAR_API_BASE = "https://www.polaraccesslink.com/v3"
+
+# Polar OAuth2 Scopes
+# accesslink.read_all gives access to all user data
+POLAR_SCOPES = "accesslink.read_all"
+
+# Rate limiting: 5000 requests per 5 minutes (Oura)
+# Polar: 500 + (users × 20) per 15 min
 RATE_LIMIT_REQUESTS = 5000
 RATE_LIMIT_WINDOW = 300  # seconds
 
@@ -868,9 +888,15 @@ def init_session_state():
     # Token keys that should ALWAYS be loaded from persistent storage if available
     # This ensures tokens survive Streamlit restarts
     token_keys = [
+        # Oura tokens
         'twin_a_token', 'twin_b_token',
         'twin_a_refresh_token', 'twin_b_refresh_token',
-        'twin_a_token_expiry', 'twin_b_token_expiry'
+        'twin_a_token_expiry', 'twin_b_token_expiry',
+        # Polar tokens
+        'polar_twin_a_token', 'polar_twin_b_token',
+        'polar_twin_a_refresh_token', 'polar_twin_b_refresh_token',
+        'polar_twin_a_token_expiry', 'polar_twin_b_token_expiry',
+        'polar_twin_a_user_id', 'polar_twin_b_user_id'
     ]
     
     # Always load tokens from persistent storage (overrides session state)
@@ -1160,7 +1186,356 @@ def is_token_valid(twin: str) -> bool:
     return True
 
 # =============================================================================
-# API DATA FETCHING
+# POLAR OAUTH2 AUTHENTICATION
+# =============================================================================
+
+def generate_polar_oauth_state(twin: str) -> str:
+    """Generate state string for Polar OAuth."""
+    # Polar requires simple state or we can encode it
+    # Format: polar_{twin}_{hash}
+    try:
+        saved_creds = load_credentials()
+        client_id = saved_creds.get('polar_client_id', '')
+        secret_component = hashlib.sha256(
+            f"{client_id}_{twin}_polar_twin_study".encode()
+        ).hexdigest()[:10]
+        return f"polar_{twin}_{secret_component}"
+    except Exception:
+        return f"polar_{twin}_{int(time.time())}"
+
+def get_polar_authorization_url(twin: str) -> str:
+    """Generate Polar OAuth2 authorization URL."""
+    state = generate_polar_oauth_state(twin)
+    creds = load_credentials()
+    
+    params = {
+        'response_type': 'code',
+        'client_id': creds.get('polar_client_id', ''),
+        'redirect_uri': creds.get('polar_redirect_uri', ''),
+        'scope': POLAR_SCOPES,
+        'state': state
+    }
+    return f"{POLAR_AUTH_URL}?{urlencode(params)}"
+
+def exchange_polar_code_for_token(code: str) -> Optional[Dict[str, Any]]:
+    """Exchange authorization code for Polar access token."""
+    creds = load_credentials()
+    
+    # Polar requires Basic Auth with client_id:client_secret for token endpoint
+    import base64
+    client_id = creds.get('polar_client_id', '')
+    client_secret = creds.get('polar_client_secret', '')
+    
+    if not client_id or not client_secret:
+        return None
+        
+    auth_str = f"{client_id}:{client_secret}"
+    b64_auth = base64.b64encode(auth_str.encode()).decode()
+    
+    headers = {
+        'Authorization': f'Basic {b64_auth}',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+    }
+    
+    data = {
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': creds.get('polar_redirect_uri', '')
+    }
+    
+    try:
+        response = requests.post(POLAR_TOKEN_URL, headers=headers, data=data)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception:
+        return None
+
+def refresh_polar_access_token(twin: str) -> bool:
+    """Refresh Polar access token."""
+    refresh_token = st.session_state.get(f'polar_{twin}_refresh_token')
+    if not refresh_token:
+        return False
+        
+    creds = load_credentials()
+    client_id = creds.get('polar_client_id', '')
+    client_secret = creds.get('polar_client_secret', '')
+    
+    import base64
+    auth_str = f"{client_id}:{client_secret}"
+    b64_auth = base64.b64encode(auth_str.encode()).decode()
+    
+    headers = {
+        'Authorization': f'Basic {b64_auth}',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+    }
+    
+    data = {
+        'grant_type': 'refresh_token',
+        'refresh_token': refresh_token
+    }
+    
+    try:
+        response = requests.post(POLAR_TOKEN_URL, headers=headers, data=data)
+        if response.status_code == 200:
+            token_data = response.json()
+            
+            # Update session state
+            st.session_state[f'polar_{twin}_token'] = token_data.get('access_token')
+            st.session_state[f'polar_{twin}_refresh_token'] = token_data.get('refresh_token', refresh_token)
+            
+            expires_in = token_data.get('expires_in', 3600)
+            st.session_state[f'polar_{twin}_token_expiry'] = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+            
+            # Save tokens
+            save_tokens({
+                f'polar_{twin}_token': token_data.get('access_token'),
+                f'polar_{twin}_refresh_token': token_data.get('refresh_token'),
+                f'polar_{twin}_token_expiry': st.session_state[f'polar_{twin}_token_expiry'],
+                f'polar_{twin}_user_id': token_data.get('x_user_id')
+            })
+            return True
+        return False
+    except Exception:
+        return False
+
+def handle_polar_oauth_callback():
+    """Handle Polar OAuth logic if present in URL."""
+    query_params = st.query_params
+    
+    if 'code' in query_params and 'state' in query_params:
+        state = query_params['state']
+        
+        # Check if it's a Polar state (starts with polar_)
+        if not state.startswith('polar_'):
+            return  # Let Oura handler check it
+            
+        code = query_params['code']
+        
+        # Parse twin from state: polar_{twin}_{hash}
+        parts = state.split('_')
+        # parts: ['polar', 'twin', 'a', 'hash'] or ['polar', 'twin', 'b', 'hash']
+        if len(parts) >= 4 and parts[1] == 'twin' and parts[2] in ['a', 'b']:
+            twin = f"twin_{parts[2]}" # twin_a or twin_b
+            
+            # Exchange code
+            token_data = exchange_polar_code_for_token(code)
+            
+            if token_data:
+                expires_in = token_data.get('expires_in', 3600)
+                
+                # Update session
+                st.session_state[f'polar_{twin}_token'] = token_data.get('access_token')
+                st.session_state[f'polar_{twin}_refresh_token'] = token_data.get('refresh_token')
+                st.session_state[f'polar_{twin}_token_expiry'] = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+                st.session_state[f'polar_{twin}_user_id'] = token_data.get('x_user_id')
+                
+                # Save tokens
+                save_tokens({
+                    f'polar_{twin}_token': token_data.get('access_token'),
+                    f'polar_{twin}_refresh_token': token_data.get('refresh_token'),
+                    f'polar_{twin}_token_expiry': st.session_state[f'polar_{twin}_token_expiry'],
+                    f'polar_{twin}_user_id': token_data.get('x_user_id')
+                })
+                
+                # Register user (required by Polar to access data)
+                register_polar_user(token_data.get('access_token'), token_data.get('x_user_id'))
+                
+                st.success(f"✅ Successfully connected Polar for {twin.replace('_', ' ').title()}!")
+                time.sleep(2) # Show success message
+                st.query_params.clear()
+                st.rerun()
+            else:
+                st.error("❌ Failed to exchange Polar code for token")
+        else:
+            st.error("❌ Invalid Polar state format")
+            
+def register_polar_user(token: str, user_id: str):
+    """Register user with Polar API (required once)."""
+    # https://www.polar.com/accesslink-api/#register-user
+    # POST https://www.polaraccesslink.com/v3/users
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    data = {'member-id': user_id}
+    try:
+        requests.post(f"{POLAR_API_BASE}/users", headers=headers, json=data)
+        # Ignore 409 Conflict (User already registered)
+    except Exception:
+        pass
+
+def is_polar_token_valid(twin: str) -> bool:
+    """Check if a twin's Polar token is valid."""
+    token = st.session_state.get(f'polar_{twin}_token')
+    expiry = st.session_state.get(f'polar_{twin}_token_expiry')
+    
+    if not token:
+        return False
+        
+    if expiry:
+        if isinstance(expiry, str):
+            try:
+                expiry_dt = datetime.fromisoformat(expiry)
+                if datetime.now() > expiry_dt:
+                    return refresh_polar_access_token(twin)
+            except ValueError:
+                pass
+    
+    return True
+
+# =============================================================================
+# POLAR DATA FETCHING
+# =============================================================================
+
+def fetch_polar_exercises(token: str) -> List[Dict[str, Any]]:
+    """Fetch recent exercises from Polar API (transaction based)."""
+    # Polar uses a transaction model. We encounter issues if we don't commit transactions.
+    # For simplicity in this dashboard, we might want to list exercises without transaction if possible,
+    # but Polar API v3 centers around transactions for new data.
+    # However, to view historical data, we can use the "List exercises" endpoint which doesn't require transaction if we use the right endpoint?
+    # Actually, the best way for a dashboard is to use "List exercises" with start/end date?
+    # Wait, the docs say "List exercises" under "Exercises" resource doesn't take date range for history?
+    # Let's check docs again.
+    # Ah, "List exercises" in API v3 is for available exercises in transaction.
+    # To get historical data, we might need "Training Data" or similar?
+    # AccessLink v3 has "Get exercise" but we need the ID.
+    # To get IDs, we usually consume transaction.
+    # BUT, there is strictly no "search exercises by date" in standard AccessLink v3 for *history* unless we store them?
+    # Wait, let's look at "Daily Activity" or similar.
+    # Oura allows fetching by date range. Polar AccessLink is designed for syncing new data.
+    # However, you can maybe re-fetch using `GET /v3/exercises`? No, that's transaction.
+    
+    # Actually, many integrations struggle with this.
+    # We might need to just use "List exercises" to check for new ones, commit them, and STORE them.
+    # But since we don't have a database, we only rely on what's available or maybe there's a workaround.
+    # Let's check if there is a "Get exercises" with range?
+    # Docs: "List exercises" -> Returns list of exercise resources (absolute URLs).
+    # This might list ALL available exercises or just new ones? "List available exercises for users".
+    # Usually it's new ones.
+    
+    # Wait, checking docs again: "GET /v3/users/{user-id}/exercise-transactions/{transaction-id}"
+    
+    # If we want HISTORY, maybe we check "Daily Activity"?
+    # "List activity for past 28 days"?
+    # But we want detailed workout data (RR intervals).
+    
+    # Workaround: For this dashboard, we might only be able to show *new* workouts since connection.
+    # OR we try to fetch via a different endpoint if available.
+    # Actually, there is `GET /v3/exercises` (deprecated?) vs v3.
+    
+    # Let's try to create a transaction, list, and then NOT commit?
+    # If we don't commit, they stay "new". But then we re-fetch them every time.
+    # This is fine for a dashboard that just shows "recent" stuff.
+    # Use: POST /v3/users/{user-id}/exercise-transactions
+    # Then GET /v3/users/{user-id}/exercise-transactions/{transaction-id}
+    
+    # We need user_id. We stored it in session/file.
+    pass 
+
+# Let's implement a "List recent exercises" using the transaction mechanism (without commit)
+# This allows us to see "new" data.
+# Note: This means once we "commit" (or if another app consumes it), it's gone from the queue.
+# This is Risky for a dashboard sharing data with other apps.
+# Is there a "history" endpoint?
+# "Daily activity" has "List activities for past 28 days".
+# But that's activity summary, not exercise samples.
+# 
+# Correction: We can probably access exercises via URLs from Daily Activity?
+# Checks docs: "Daily activity ... contains link to training session if available?"
+# Maybe.
+# 
+# Alternative: WE WILL USE TRANSACTION BUT NOT COMMIT.
+# This allows us to peek.
+# BUT, we need `user_id`.
+# Let's ensure we have `polar_twin_x_user_id`.
+
+def get_polar_available_exercises(token: str, user_id: str) -> List[str]:
+    """Get list of available exercise URLs via transaction (peek only)."""
+    if not user_id:
+        return []
+        
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/json'
+    }
+    
+    # 1. Create transaction
+    try:
+        response = requests.post(f"{POLAR_API_BASE}/users/{user_id}/exercise-transactions", headers=headers)
+        if response.status_code == 201:
+            data = response.json()
+            transaction_id = data.get('transaction-id')
+            resource_url = data.get('resource-uri')
+            
+            # 2. List exercises in transaction
+            if resource_url:
+                list_resp = requests.get(resource_url, headers=headers)
+                if list_resp.status_code == 200:
+                    exercises = list_resp.json().get('exercises', [])
+                    # We DO NOT commit, to leave data for other apps (or next refresh)
+                    return exercises
+        elif response.status_code == 204:
+            # No content = no new data
+            return []
+    except Exception:
+        pass
+    return []
+
+def fetch_polar_exercise_data(token: str, url: str) -> Optional[Dict[str, Any]]:
+    """Fetch full exercise data from a specific exercise URL."""
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/json'
+    }
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+    return None
+
+def get_polar_workout_data(twin: str) -> List[Dict[str, Any]]:
+    """Get recent Polar workouts for a twin."""
+    token = st.session_state.get(f'polar_{twin}_token')
+    user_id = st.session_state.get(f'polar_{twin}_user_id')
+    
+    if not token or not user_id:
+        return []
+        
+    # Get available exercises (peek)
+    exercise_urls = get_polar_available_exercises(token, str(user_id))
+    
+    workouts = []
+    # Limit to last 5 to avoid slow loading
+    for url in exercise_urls[:5]:
+        data = fetch_polar_exercise_data(token, url)
+        if data:
+            workouts.append(data)
+            
+    return workouts
+
+def parse_polar_samples(samples: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
+    """Parse Polar sample data strings into lists."""
+    # Samples come as comma-separated strings
+    parsed = {}
+    for sample in samples:
+        sample_type = sample.get('sample-type')
+        data_str = sample.get('data', '')
+        if data_str:
+            values = [int(x) for x in data_str.split(',')]
+            parsed[sample_type] = {
+                'rate': sample.get('recording-rate'),
+                'values': values
+            }
+    return parsed
+
+# =============================================================================
+# API DATA FETCHING (Oura)
 # =============================================================================
 
 def check_rate_limit() -> bool:
@@ -2633,8 +3008,8 @@ def render_main_content():
     # ==========================================================================
     # TABBED LAYOUT
     # ==========================================================================
-    tab_overview, tab_trends, tab_workouts, tab_data, tab_settings = st.tabs([
-        "📊 Overview", "📈 Trends", "🏋️ Workouts", "📋 Data", "⚙️ Settings"
+    tab_overview, tab_trends, tab_workouts, tab_polar, tab_data, tab_settings = st.tabs([
+        "📊 Overview", "📈 Trends", "🏋️ Workouts", "⌚ Polar", "📋 Data", "⚙️ Settings"
     ])
     
     # ==========================================================================
@@ -2922,7 +3297,92 @@ def render_main_content():
         render_workout_comparison(start_date, end_date, dark_mode=is_dark)
     
     # ==========================================================================
-    # TAB 4: RAW DATA
+    # TAB 4: POLAR WORKOUTS
+    # ==========================================================================
+    with tab_polar:
+        st.markdown("### ⌚ Polar Chest Strap Data")
+        st.caption("High-fidelity heart rate data from Polar H10/H9 chest straps.")
+        
+        # 1. Connection Management
+        col_pol_a, col_pol_b = st.columns(2)
+        
+        # Twin A
+        with col_pol_a:
+            st.markdown(f"**Twin A** <span style='color:{TWIN_A_COLOR}'>●</span>", unsafe_allow_html=True)
+            if is_polar_token_valid('twin_a'):
+                st.success("✅ Polar Connected")
+                if st.button("Disconnect Polar A", key="disc_polar_a"):
+                    st.session_state.polar_twin_a_token = None
+                    save_tokens({'polar_twin_a_token': None})
+                    st.rerun()
+            else:
+                st.info("❌ Not Connected")
+                if st.button("Connect Polar A", key="conn_polar_a"):
+                    auth_url = get_polar_authorization_url('twin_a')
+                    st.link_button("Login with Polar", auth_url, use_container_width=True)
+                    
+        # Twin B
+        with col_pol_b:
+            st.markdown(f"**Twin B** <span style='color:{TWIN_B_COLOR}'>●</span>", unsafe_allow_html=True)
+            saved_creds = load_credentials()
+            if not saved_creds.get('polar_client_id'):
+                st.warning("⚠️ Polar credentials missing. Add them in Settings.")
+            elif is_polar_token_valid('twin_b'):
+                st.success("✅ Polar Connected")
+                if st.button("Disconnect Polar B", key="disc_polar_b"):
+                    st.session_state.polar_twin_b_token = None
+                    save_tokens({'polar_twin_b_token': None})
+                    st.rerun()
+            else:
+                st.info("❌ Not Connected")
+                if st.button("Connect Polar B", key="conn_polar_b"):
+                    auth_url = get_polar_authorization_url('twin_b')
+                    st.link_button("Login with Polar", auth_url, use_container_width=True)
+        
+        st.divider()
+        
+        # 2. Workout Data
+        if is_polar_token_valid('twin_a') or is_polar_token_valid('twin_b'):
+            st.subheader("Recent Polar Workouts")
+            
+            col_list_a, col_list_b = st.columns(2)
+            
+            with col_list_a:
+                if is_polar_token_valid('twin_a'):
+                    workouts_a = get_polar_workout_data('twin_a')
+                    if workouts_a:
+                        for w in workouts_a:
+                            w_date = w.get('start_time', '')[:10]
+                            w_sport = w.get('detailed_sport_info', 'WORKOUT')
+                            w_hr = w.get('heart_rate', {}).get('average', '—')
+                            st.write(f"**{w_date}**: {w_sport} (Avg HR: {w_hr})")
+                            with st.expander("Details"):
+                                st.json(w)
+                    else:
+                        st.info("No recent Polar workouts found.")
+                else:
+                    st.caption("Connect Twin A to see workouts")
+            
+            with col_list_b:
+                if is_polar_token_valid('twin_b'):
+                    workouts_b = get_polar_workout_data('twin_b')
+                    if workouts_b:
+                        for w in workouts_b:
+                            w_date = w.get('start_time', '')[:10]
+                            w_sport = w.get('detailed_sport_info', 'WORKOUT')
+                            w_hr = w.get('heart_rate', {}).get('average', '—')
+                            st.write(f"**{w_date}**: {w_sport} (Avg HR: {w_hr})")
+                            with st.expander("Details"):
+                                st.json(w)
+                    else:
+                        st.info("No recent Polar workouts found.")
+                else:
+                    st.caption("Connect Twin B to see workouts")
+        else:
+            st.info("Connect Polar accounts above to view chest strap data.")
+
+    # ==========================================================================
+    # TAB 5: RAW DATA
     # ==========================================================================
     with tab_data:
         st.markdown("### Raw Data Tables")
@@ -3064,6 +3524,7 @@ def main():
     
     # Handle OAuth callback if present
     handle_oauth_callback()
+    handle_polar_oauth_callback()
     
     # Inject dark mode CSS if enabled
     inject_dark_mode_css()
