@@ -2968,17 +2968,6 @@ def render_workout_comparison(start_date: date, end_date: date, df_a, df_b, metr
             st.metric("Avg Skin Temp", 
                       f"{metrics_b['skin_temp']:.1f}°C" if metrics_b['skin_temp'] is not None else "—")
         
-        # Readiness Score Chart
-        st.markdown("#### Readiness & Recovery")
-        if not df_a.empty and not df_b.empty:
-            fig_readiness = create_dual_axis_chart(
-                df_a, df_b,
-                'readiness_score', 'temperature_deviation',
-                "Daily Readiness Score vs Skin Temperature",
-                "Readiness Score (0-100)", "Temp Deviation (°C)",
-                dark_mode=dark_mode
-            )
-            st.plotly_chart(fig_readiness, use_container_width=True)
         with col3:
             st.metric("Diff (A - B)", 
                       f"{'+' if diff_hours >= 0 else ''}{diff_hours}h",
