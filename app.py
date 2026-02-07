@@ -1261,40 +1261,61 @@ def fetch_all_twin_data(twin: str, start_date: date, end_date: date) -> Dict[str
         'daily_sleep': None,
         'cardiovascular_age': None,
         'daily_readiness': None,
-        'resilience': None
+        'resilience': None,
+        '_debug': {}  # Store debug info for API responses
     }
     
     # Fetch SpO2 data
     spo2_response = fetch_oura_data('/usercollection/daily_spo2', token, start_date, end_date)
     if spo2_response:
         data['daily_spo2'] = spo2_response.get('data', [])
+        data['_debug']['daily_spo2'] = f"OK: {len(data['daily_spo2'])} records"
+    else:
+        data['_debug']['daily_spo2'] = "No response (403 or empty)"
     
     # Fetch detailed sleep data (contains RHR, HRV, respiratory rate)
     sleep_response = fetch_oura_data('/usercollection/sleep', token, start_date, end_date)
     if sleep_response:
         data['sleep'] = sleep_response.get('data', [])
+        data['_debug']['sleep'] = f"OK: {len(data['sleep'])} records"
+    else:
+        data['_debug']['sleep'] = "No response (403 or empty)"
     
     # Fetch daily sleep scores
     daily_sleep_response = fetch_oura_data('/usercollection/daily_sleep', token, start_date, end_date)
     if daily_sleep_response:
         data['daily_sleep'] = daily_sleep_response.get('data', [])
+        data['_debug']['daily_sleep'] = f"OK: {len(data['daily_sleep'])} records"
+    else:
+        data['_debug']['daily_sleep'] = "No response (403 or empty)"
     
     # Fetch cardiovascular age
     cv_response = fetch_oura_data('/usercollection/daily_cardiovascular_age', token, start_date, end_date)
     if cv_response:
         data['cardiovascular_age'] = cv_response.get('data', [])
+        data['_debug']['cardiovascular_age'] = f"OK: {len(data['cardiovascular_age'])} records"
+    else:
+        data['_debug']['cardiovascular_age'] = "No response (403, needs 'daily' scope, or not available)"
 
     # Fetch daily readiness (for skin temperature)
     readiness_response = fetch_oura_data('/usercollection/daily_readiness', token, start_date, end_date)
     if readiness_response:
         data['daily_readiness'] = readiness_response.get('data', [])
+        data['_debug']['daily_readiness'] = f"OK: {len(data['daily_readiness'])} records"
+    else:
+        data['_debug']['daily_readiness'] = "No response (403 or empty)"
     
     # Fetch resilience data
     resilience_response = fetch_oura_data('/usercollection/daily_resilience', token, start_date, end_date)
     if resilience_response:
         data['resilience'] = resilience_response.get('data', [])
+        data['_debug']['resilience'] = f"OK: {len(data['resilience'])} records"
+    else:
+        data['_debug']['resilience'] = "No response (403, needs 'daily' scope, or not available)"
     
     return data
+
+
 
 # =============================================================================
 # MOCK DATA GENERATION
@@ -2689,13 +2710,31 @@ def render_main_content():
     with tab_trends:
         st.markdown("### Trend Analysis")
         
+        # Debug expander for API responses
+        with st.expander("🔍 API Debug Info", expanded=False):
+            col_debug_a, col_debug_b = st.columns(2)
+            with col_debug_a:
+                st.markdown("**Twin A API Responses:**")
+                debug_a = raw_data_a.get('_debug', {})
+                for endpoint, status in debug_a.items():
+                    icon = "✅" if status.startswith("OK") else "❌"
+                    st.caption(f"{icon} {endpoint}: {status}")
+            with col_debug_b:
+                st.markdown("**Twin B API Responses:**")
+                debug_b = raw_data_b.get('_debug', {})
+                for endpoint, status in debug_b.items():
+                    icon = "✅" if status.startswith("OK") else "❌"
+                    st.caption(f"{icon} {endpoint}: {status}")
+        
         with st.expander("About Data Availability", expanded=False):
             st.markdown("""
             **Why might some metrics show "No Data"?**
             - **SpO2**: Requires SpO2 monitoring enabled in Oura app settings
-            - **Cardiovascular Age**: Requires consistent ring wear over time
+            - **Cardiovascular Age**: Requires consistent ring wear over time and may require subscription
+            - **Resilience**: This is a premium feature and requires an active Oura membership
             - **Sleep data**: User must sync their ring with the Oura mobile app
             """)
+
         
         # Row 1
         col1, col2 = st.columns(2)
