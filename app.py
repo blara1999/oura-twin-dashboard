@@ -3410,7 +3410,7 @@ def render_main_content():
                     
                     with st.expander("🛠️ Polar A Debug"):
                         st.json(debug_a)
-                        st.caption("Tip: Polar only shares workouts uploaded AFTER you connected this specific dashboard.")
+                        st.warning("⚠️ **Important Limitation**: Polar only shares workouts syncing to Flow **AFTER** you connected this dashboard. Workouts from before connection will never appear here.")
                 else:
                     st.caption("Connect Twin A to see workouts")
             
@@ -3430,7 +3430,7 @@ def render_main_content():
                     
                     with st.expander("🛠️ Polar B Debug"):
                         st.json(debug_b)
-                        st.caption("Tip: Polar only shares workouts uploaded AFTER you connected this specific dashboard.")
+                        st.warning("⚠️ **Important Limitation**: Polar only shares workouts syncing to Flow **AFTER** you connected this dashboard. Workouts from before connection will never appear here.")
                 else:
                     st.caption("Connect Twin B to see workouts")
         else:
