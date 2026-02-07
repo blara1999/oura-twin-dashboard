@@ -367,14 +367,14 @@ TWIN_B_COLOR = "#be123c"  # Rose red - professional
 # Study Configuration
 TWIN_LABELS = {
     'twin_a': {
-        'name': 'Chris (CP)', 
+        'name': 'CP', 
         'role': 'IHT Intervention', 
         'color': TWIN_A_COLOR, 
         'timezone': 'Asia/Dubai',
         'hr_zones': {'lt1': 135, 'lt2': 158} # Placeholder thresholds for zones
     },
     'twin_b': {
-        'name': 'Graham (GP)', 
+        'name': 'GP', 
         'role': 'Control', 
         'color': TWIN_B_COLOR, 
         'timezone': 'Europe/London',
