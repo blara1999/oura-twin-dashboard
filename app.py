@@ -19,14 +19,16 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta, date
+from datetime import date, datetime, timedelta, time
+import time as time_module
+import calendar
+from zoneinfo import ZoneInfo
 from urllib.parse import urlencode, parse_qs
 import secrets
 import time
 from typing import Optional, Dict, Any, Tuple, List
 import json
 import os
-import hashlib
 # import extra_streamlit_components as stx  # Replaced with cookies controller
 from streamlit_cookies_controller import CookieController
 from pathlib import Path
@@ -1434,46 +1436,18 @@ def fetch_polar_exercises(token: str) -> List[Dict[str, Any]]:
     # Actually, many integrations struggle with this.
     # We might need to just use "List exercises" to check for new ones, commit them, and STORE them.
     # But since we don't have a database, we only rely on what's available or maybe there's a workaround.
-    # Let's check if there is a "Get exercises" with range?
-    # Docs: "List exercises" -> Returns list of exercise resources (absolute URLs).
-    # This might list ALL available exercises or just new ones? "List available exercises for users".
-    # Usually it's new ones.
-    
-    # Wait, checking docs again: "GET /v3/users/{user-id}/exercise-transactions/{transaction-id}"
-    
-    # If we want HISTORY, maybe we check "Daily Activity"?
-    # "List activity for past 28 days"?
-    # But we want detailed workout data (RR intervals).
-    
-    # Workaround: For this dashboard, we might only be able to show *new* workouts since connection.
-    # OR we try to fetch via a different endpoint if available.
-    # Actually, there is `GET /v3/exercises` (deprecated?) vs v3.
-    
-    # Let's try to create a transaction, list, and then NOT commit?
-    # If we don't commit, they stay "new". But then we re-fetch them every time.
-    # This is fine for a dashboard that just shows "recent" stuff.
-    # Use: POST /v3/users/{user-id}/exercise-transactions
-    # Then GET /v3/users/{user-id}/exercise-transactions/{transaction-id}
-    
-    # We need user_id. We stored it in session/file.
-    pass 
-
-# Let's implement a "List recent exercises" using the transaction mechanism (without commit)
-# This allows us to see "new" data.
-# Note: This means once we "commit" (or if another app consumes it), it's gone from the queue.
-# This is Risky for a dashboard sharing data with other apps.
-# Is there a "history" endpoint?
-# "Daily activity" has "List activities for past 28 days".
-# But that's activity summary, not exercise samples.
-# 
-# Correction: We can probably access exercises via URLs from Daily Activity?
-# Checks docs: "Daily activity ... contains link to training session if available?"
-# Maybe.
-# 
-# Alternative: WE WILL USE TRANSACTION BUT NOT COMMIT.
-# This allows us to peek.
-# BUT, we need `user_id`.
-# Let's ensure we have `polar_twin_x_user_id`.
+    # Is there a "history" endpoint?
+    # "Daily activity" has "List activities for past 28 days".
+    # But that's activity summary, not exercise samples.
+    # 
+    # Correction: We can probably access exercises via URLs from Daily Activity?
+    # Checks docs: "Daily activity ... contains link to training session if available?"
+    # Maybe.
+    # 
+    # Alternative: WE WILL USE TRANSACTION BUT NOT COMMIT.
+    # This allows us to peek.
+    # BUT, we need `user_id`.
+    # Let's ensure we have `polar_twin_x_user_id`.
 
 def get_polar_available_exercises(token: str) -> Tuple[List[str], Dict[str, Any]]:
     """Get list of available exercise URLs for the last 30 days."""
@@ -1824,6 +1798,7 @@ def fetch_workouts_for_twin(twin: str, start_date: date, end_date: date) -> Tupl
 
 def fetch_intraday_heartrate(
     token: str,
+    twin_key: str, # Added twin_key to get timezone
     hours: int = 4,
     debug_info: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
@@ -1832,6 +1807,7 @@ def fetch_intraday_heartrate(
     
     Args:
         token: OAuth2 access token
+        twin_key: 'twin_a' or 'twin_b' to get timezone
         hours: Number of hours to fetch (default 4)
         debug_info: Optional dict to populate with debug information
     
@@ -1849,12 +1825,15 @@ def fetch_intraday_heartrate(
         debug_info['error'] = 'Rate limited'
         return []
     
-    end_time = datetime.now()
-    start_time = end_time - timedelta(hours=hours)
+    # Use timezone-aware datetime for the twin's timezone
+    tz = ZoneInfo(TWIN_LABELS[twin_key]['timezone'])
+    current_time = datetime.now(tz)
+    end_time = current_time
+    start_time = current_time - timedelta(hours=hours)
     
     url = f"{OURA_API_BASE}/usercollection/heartrate"
     headers = {
-        'Authorization': f'Bearer {token[:10]}...',  # Truncated for logging
+        'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json'
     }
     params = {
@@ -1917,7 +1896,7 @@ def get_intraday_data_for_twin(twin: str, hours: int = 4) -> Tuple[List[Dict[str
         return [], debug_info
     
     debug_info['token_present'] = True
-    data = fetch_intraday_heartrate(token, hours, debug_info)
+    data = fetch_intraday_heartrate(token, twin, hours, debug_info) # Pass twin_key here
     return data, debug_info
 
 def create_intraday_comparison_chart(
@@ -1938,6 +1917,11 @@ def create_intraday_comparison_chart(
     """
     fig = go.Figure()
     
+    # Helper to get current day in twin's timezone
+    def get_current_day(twin_key):
+        tz = ZoneInfo(TWIN_LABELS[twin_key]['timezone'])
+        return datetime.now(tz).date()
+
     # Add HR Zone Background Bands for Twin A (Intervention)
     # Only if Twin A data is present or requested context
     zones = TWIN_LABELS['twin_a'].get('hr_zones')
@@ -1972,34 +1956,50 @@ def create_intraday_comparison_chart(
         return ts
     
     if data_a:
-        has_data = True
-        timestamps_a = [parse_timestamp_to_local(d['timestamp'], TWIN_LABELS['twin_a']['timezone']) for d in data_a]
-        bpm_a = [d['bpm'] for d in data_a]
+        df_a = pd.DataFrame(data_a)
+        df_a['timestamp'] = pd.to_datetime(df_a['timestamp'])
         
-        fig.add_trace(go.Scatter(
-            x=timestamps_a,
-            y=bpm_a,
-            name=f"{TWIN_LABELS['twin_a']['name']} ({TWIN_LABELS['twin_a']['role']})",
-            line=dict(color=TWIN_A_COLOR, width=2),
-            mode='lines+markers',
-            marker=dict(size=4),
-            hovertemplate=f"<b>{TWIN_LABELS['twin_a']['name']}</b><br>Time: %{{x|%H:%M}}<br>HR: %{{y}} bpm<extra></extra>"
-        ))
+        # Filter for today only based on twin's timezone
+        today_a = get_current_day('twin_a')
+        df_a = df_a[df_a['timestamp'].dt.tz_convert(TWIN_LABELS['twin_a']['timezone']).dt.date == today_a]
+
+        if not df_a.empty:
+            has_data = True
+            timestamps_a = [parse_timestamp_to_local(d['timestamp'].isoformat(), TWIN_LABELS['twin_a']['timezone']) for _, d in df_a.iterrows()]
+            bpm_a = df_a['bpm'].tolist()
+            
+            fig.add_trace(go.Scatter(
+                x=timestamps_a,
+                y=bpm_a,
+                name=f"{TWIN_LABELS['twin_a']['name']} ({TWIN_LABELS['twin_a']['role']})",
+                line=dict(color=TWIN_A_COLOR, width=2),
+                mode='lines+markers',
+                marker=dict(size=4),
+                hovertemplate=f"<b>{TWIN_LABELS['twin_a']['name']}</b><br>Time: %{{x|%H:%M}}<br>HR: %{{y}} bpm<extra></extra>"
+            ))
     
     if data_b:
-        has_data = True
-        timestamps_b = [parse_timestamp_to_local(d['timestamp'], TWIN_LABELS['twin_b']['timezone']) for d in data_b]
-        bpm_b = [d['bpm'] for d in data_b]
+        df_b = pd.DataFrame(data_b)
+        df_b['timestamp'] = pd.to_datetime(df_b['timestamp'])
         
-        fig.add_trace(go.Scatter(
-            x=timestamps_b,
-            y=bpm_b,
-            name=f"{TWIN_LABELS['twin_b']['name']} ({TWIN_LABELS['twin_b']['role']})",
-            line=dict(color=TWIN_B_COLOR, width=2),
-            mode='lines+markers',
-            marker=dict(size=4),
-            hovertemplate=f"<b>{TWIN_LABELS['twin_b']['name']}</b><br>Time: %{{x|%H:%M}}<br>HR: %{{y}} bpm<extra></extra>"
-        ))
+        # Filter for today only based on twin's timezone
+        today_b = get_current_day('twin_b')
+        df_b = df_b[df_b['timestamp'].dt.tz_convert(TWIN_LABELS['twin_b']['timezone']).dt.date == today_b]
+
+        if not df_b.empty:
+            has_data = True
+            timestamps_b = [parse_timestamp_to_local(d['timestamp'].isoformat(), TWIN_LABELS['twin_b']['timezone']) for _, d in df_b.iterrows()]
+            bpm_b = df_b['bpm'].tolist()
+            
+            fig.add_trace(go.Scatter(
+                x=timestamps_b,
+                y=bpm_b,
+                name=f"{TWIN_LABELS['twin_b']['name']} ({TWIN_LABELS['twin_b']['role']})",
+                line=dict(color=TWIN_B_COLOR, width=2),
+                mode='lines+markers',
+                marker=dict(size=4),
+                hovertemplate=f"<b>{TWIN_LABELS['twin_b']['name']}</b><br>Time: %{{x|%H:%M}}<br>HR: %{{y}} bpm<extra></extra>"
+            ))
     
     # Styling
     bg_color = '#1e293b' if dark_mode else '#ffffff'
@@ -2047,7 +2047,7 @@ def create_intraday_comparison_chart(
     
     if not has_data:
         fig.add_annotation(
-            text="No intraday heart rate data available",
+            text="No intraday heart rate data available for today",
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
@@ -2215,11 +2215,17 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
         else:
             readiness_df['readiness_score'] = None
             
-        df = df.merge(
-            readiness_df[['day', 'temperature_deviation', 'readiness_score']],
-            on='day',
-            how='left'
-        )
+        readiness_df['day'] = pd.to_datetime(readiness_df['day'])
+        
+        # Merge, careful with missing columns
+        cols_to_merge = ['day', 'readiness_score']
+        if 'temperature_deviation' in readiness_df.columns:
+            cols_to_merge.append('temperature_deviation')
+        else:
+            readiness_df['temperature_deviation'] = None
+            cols_to_merge.append('temperature_deviation')
+            
+        df = df.merge(readiness_df[cols_to_merge], on='day', how='left')
     else:
         df['temperature_deviation'] = None
         df['readiness_score'] = None
@@ -2365,17 +2371,23 @@ def create_comparative_line_chart(
         )
     
     # Add IHT Session Annotations
-    for session in IHT_SESSIONS:
-        # Check if session date is within data range
-        if df_a['day'].min() <= pd.Timestamp(session['date']) <= df_a['day'].max():
-             fig.add_vline(
-                x=pd.Timestamp(session['date']),
-                line_dash="dot",
-                line_color="green",
-                opacity=0.5,
-                annotation_text=f"IHT {session['session']}",
-                annotation_position="top left"
-            )
+    if not df_a.empty and 'day' in df_a.columns:
+        df_a_filtered = df_a.dropna(subset=['day'])
+        if not df_a_filtered.empty:
+            for session in IHT_SESSIONS:
+                # Check if session date is within data range
+                session_ts = pd.Timestamp(session['date'])
+                if df_a_filtered['day'].min() <= session_ts <= df_a_filtered['day'].max():
+                     fig.add_vline(
+                        x=session_ts, 
+                        line_width=1, 
+                        line_dash="dot", 
+                        line_color="green",
+                        annotation_text=f"IHT {session['session']}",
+                        annotation_position="top left",
+                        annotation_font_size=10,
+                        annotation_font_color="green"
+                    )
     
     # Colors based on theme
     if dark_mode:
@@ -2623,11 +2635,11 @@ def render_kpi_metric(label: str, value_a: Any, value_b: Any, unit: str = "",
     
     st.markdown(f"""
     <div class="metric-card" style="{border_a} padding: 10px 14px; margin-bottom: 6px; border-radius: 6px;">
-        <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500;">Twin A</div>
+        <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500;">{TWIN_LABELS['twin_a']['name']}</div>
         <div style="font-size: 1.4rem; font-weight: 700; color: {color_a}; font-variant-numeric: tabular-nums; margin-top: 2px;">{format_value(value_a)}</div>
     </div>
-    <div class="metric-card" style="{border_b} padding: 10px 14px; border-radius: 6px;">
-        <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500;">Twin B</div>
+    <div class="metric-card" style="{border_b} padding: 10px 14px; margin-bottom: 6px; border-radius: 6px;">
+        <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500;">{TWIN_LABELS['twin_b']['name']}</div>
         <div style="font-size: 1.4rem; font-weight: 700; color: {color_b}; font-variant-numeric: tabular-nums; margin-top: 2px;">{format_value(value_b)}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -2964,10 +2976,6 @@ def render_workout_comparison(start_date: date, end_date: date, df_a, df_b, metr
             st.metric("Twin A", f"{round(week_a_hours, 1)}h", f"{int(week_a_cals)} cal")
         with col2:
             st.metric("Twin B", f"{round(week_b_hours, 1)}h", f"{int(week_b_cals)} cal")
-        with col2:
-            st.metric("Avg Skin Temp", 
-                      f"{metrics_b['skin_temp']:.1f}°C" if metrics_b['skin_temp'] is not None else "—")
-        
         with col3:
             st.metric("Diff (A - B)", 
                       f"{'+' if diff_hours >= 0 else ''}{diff_hours}h",
@@ -3028,18 +3036,18 @@ def render_main_content():
             sync_time = metrics_a['last_sync']
             if isinstance(sync_time, pd.Timestamp):
                 sync_time = sync_time.strftime('%Y-%m-%d')
-            st.caption(f"**Twin A** synced: {sync_time}")
+            st.caption(f"**{TWIN_LABELS['twin_a']['name']}** synced: {sync_time}")
         else:
-            st.caption("**Twin A**: No data")
+            st.caption(f"**{TWIN_LABELS['twin_a']['name']}**: No data")
     
     with col_status2:
         if metrics_b['last_sync']:
             sync_time = metrics_b['last_sync']
             if isinstance(sync_time, pd.Timestamp):
                 sync_time = sync_time.strftime('%Y-%m-%d')
-            st.caption(f"**Twin B** synced: {sync_time}")
+            st.caption(f"**{TWIN_LABELS['twin_b']['name']}** synced: {sync_time}")
         else:
-            st.caption("**Twin B**: No data")
+            st.caption(f"**{TWIN_LABELS['twin_b']['name']}**: No data")
     
     # Dark mode toggle in header area
     col_spacer, col_dark = st.columns([5, 1])
@@ -3171,23 +3179,23 @@ def render_main_content():
             with ex_stats_col1:
                 if intraday_a:
                     max_hr_a = max(d['bpm'] for d in intraday_a)
-                    st.metric("Twin A Peak HR", f"{max_hr_a} bpm")
+                    st.metric(f"{TWIN_LABELS['twin_a']['name']} Peak HR", f"{max_hr_a} bpm")
                 else:
-                    st.metric("Twin A Peak HR", "—")
+                    st.metric(f"{TWIN_LABELS['twin_a']['name']} Peak HR", "—")
             
             with ex_stats_col2:
                 if intraday_b:
                     max_hr_b = max(d['bpm'] for d in intraday_b)
-                    st.metric("Twin B Peak HR", f"{max_hr_b} bpm")
+                    st.metric(f"{TWIN_LABELS['twin_b']['name']} Peak HR", f"{max_hr_b} bpm")
                 else:
-                    st.metric("Twin B Peak HR", "—")
+                    st.metric(f"{TWIN_LABELS['twin_b']['name']} Peak HR", "—")
             
             with ex_stats_col3:
                 if intraday_a:
                     avg_hr_a = int(sum(d['bpm'] for d in intraday_a) / len(intraday_a))
-                    st.metric("Twin A Avg HR", f"{avg_hr_a} bpm")
+                    st.metric(f"{TWIN_LABELS['twin_a']['name']} Avg HR", f"{avg_hr_a} bpm")
                 else:
-                    st.metric("Twin A Avg HR", "—")
+                    st.metric(f"{TWIN_LABELS['twin_a']['name']} Avg HR", "—")
             
             with ex_stats_col4:
                 if intraday_b:
@@ -3340,34 +3348,34 @@ def render_main_content():
         
         # Twin A
         with col_pol_a:
-            st.markdown(f"**Twin A** <span style='color:{TWIN_A_COLOR}'>●</span>", unsafe_allow_html=True)
+            st.markdown(f"**{TWIN_LABELS['twin_a']['name']}** <span style='color:{TWIN_A_COLOR}'>●</span>", unsafe_allow_html=True)
             if is_polar_token_valid('twin_a'):
                 st.success("✅ Polar Connected")
-                if st.button("Disconnect Polar A", key="disc_polar_a"):
+                if st.button(f"Disconnect Polar {TWIN_LABELS['twin_a']['name']}", key="disc_polar_a"):
                     st.session_state.polar_twin_a_token = None
                     save_tokens({'polar_twin_a_token': None})
                     st.rerun()
             else:
                 st.info("❌ Not Connected")
-                if st.button("Connect Polar A", key="conn_polar_a"):
+                if st.button(f"Connect Polar {TWIN_LABELS['twin_a']['name']}", key="conn_polar_a"):
                     auth_url = get_polar_authorization_url('twin_a')
                     st.link_button("Login with Polar", auth_url, use_container_width=True)
                     
         # Twin B
         with col_pol_b:
-            st.markdown(f"**Twin B** <span style='color:{TWIN_B_COLOR}'>●</span>", unsafe_allow_html=True)
+            st.markdown(f"**{TWIN_LABELS['twin_b']['name']}** <span style='color:{TWIN_B_COLOR}'>●</span>", unsafe_allow_html=True)
             saved_creds = load_credentials()
             if not saved_creds.get('polar_client_id'):
                 st.warning("⚠️ Polar credentials missing. Add them in Settings.")
             elif is_polar_token_valid('twin_b'):
                 st.success("✅ Polar Connected")
-                if st.button("Disconnect Polar B", key="disc_polar_b"):
+                if st.button(f"Disconnect Polar {TWIN_LABELS['twin_b']['name']}", key="disc_polar_b"):
                     st.session_state.polar_twin_b_token = None
                     save_tokens({'polar_twin_b_token': None})
                     st.rerun()
             else:
                 st.info("❌ Not Connected")
-                if st.button("Connect Polar B", key="conn_polar_b"):
+                if st.button(f"Connect Polar {TWIN_LABELS['twin_b']['name']}", key="conn_polar_b"):
                     auth_url = get_polar_authorization_url('twin_b')
                     st.link_button("Login with Polar", auth_url, use_container_width=True)
         
@@ -3393,11 +3401,11 @@ def render_main_content():
                     else:
                         st.info("No recent Polar workouts found.")
                     
-                    with st.expander("🛠️ Polar A Debug"):
+                    with st.expander(f"🛠️ Polar {TWIN_LABELS['twin_a']['name']} Debug"):
                         st.json(debug_a)
                         st.warning("⚠️ **Important Limitation**: Polar only shares workouts syncing to Flow **AFTER** you connected this dashboard. Workouts from before connection will never appear here.")
                 else:
-                    st.caption("Connect Twin A to see workouts")
+                    st.caption(f"Connect {TWIN_LABELS['twin_a']['name']} to see workouts")
             
             with col_list_b:
                 if is_polar_token_valid('twin_b'):
@@ -3413,11 +3421,11 @@ def render_main_content():
                     else:
                         st.info("No recent Polar workouts found.")
                     
-                    with st.expander("🛠️ Polar B Debug"):
+                    with st.expander(f"🛠️ Polar {TWIN_LABELS['twin_b']['name']} Debug"):
                         st.json(debug_b)
                         st.warning("⚠️ **Important Limitation**: Polar only shares workouts syncing to Flow **AFTER** you connected this dashboard. Workouts from before connection will never appear here.")
                 else:
-                    st.caption("Connect Twin B to see workouts")
+                    st.caption(f"Connect {TWIN_LABELS['twin_b']['name']} to see workouts")
         else:
             st.info("Connect Polar accounts above to view chest strap data.")
 
@@ -3426,21 +3434,21 @@ def render_main_content():
     # ==========================================================================
     with tab_data:
         st.markdown("### Raw Data Tables")
-        data_tab1, data_tab2 = st.tabs(["Twin A Data", "Twin B Data"])
+        data_tab1, data_tab2 = st.tabs([f"{TWIN_LABELS['twin_a']['name']} Data", f"{TWIN_LABELS['twin_b']['name']} Data"])
         
         with data_tab1:
             if not df_a.empty:
                 display_df_a = df_a.copy()
                 st.dataframe(display_df_a, use_container_width=True)
             else:
-                st.info("No data available for Twin A")
+                st.info(f"No data available for {TWIN_LABELS['twin_a']['name']}")
         
         with data_tab2:
             if not df_b.empty:
                 display_df_b = df_b.copy()
                 st.dataframe(display_df_b, use_container_width=True)
             else:
-                st.info("No data available for Twin B")
+                st.info(f"No data available for {TWIN_LABELS['twin_b']['name']}")
     
     with tab_data:
         st.markdown("### Raw Data Export")
@@ -3484,10 +3492,10 @@ def render_main_content():
         col_twin_a, col_twin_b = st.columns(2)
         
         with col_twin_a:
-            st.markdown("**Twin A Connection**")
+            st.markdown(f"**{TWIN_LABELS['twin_a']['name']} Connection**")
             if twin_a_connected:
                 st.success("✅ Connected")
-                if st.button("Disconnect Twin A", key="disconnect_a_tab", use_container_width=True):
+                if st.button(f"Disconnect {TWIN_LABELS['twin_a']['name']}", key="disconnect_a_tab", use_container_width=True):
                     st.session_state.twin_a_token = None
                     st.session_state.twin_a_refresh_token = None
                     remove_twin_tokens('twin_a')
@@ -3496,15 +3504,15 @@ def render_main_content():
                 st.error("❌ Not Connected")
                 if saved_creds.get('client_id') and saved_creds.get('client_secret'):
                     auth_url = get_authorization_url('twin_a')
-                    st.link_button("Connect Twin A", auth_url, use_container_width=True)
+                    st.link_button(f"Connect {TWIN_LABELS['twin_a']['name']}", auth_url, use_container_width=True)
                 else:
                     st.caption("Configure API credentials below first")
         
         with col_twin_b:
-            st.markdown("**Twin B Connection**")
+            st.markdown(f"**{TWIN_LABELS['twin_b']['name']} Connection**")
             if twin_b_connected:
                 st.success("✅ Connected")
-                if st.button("Disconnect Twin B", key="disconnect_b_tab", use_container_width=True):
+                if st.button(f"Disconnect {TWIN_LABELS['twin_b']['name']}", key="disconnect_b_tab", use_container_width=True):
                     st.session_state.twin_b_token = None
                     st.session_state.twin_b_refresh_token = None
                     remove_twin_tokens('twin_b')
@@ -3513,7 +3521,7 @@ def render_main_content():
                 st.error("❌ Not Connected")
                 if saved_creds.get('client_id') and saved_creds.get('client_secret'):
                     auth_url = get_authorization_url('twin_b')
-                    st.link_button("Connect Twin B", auth_url, use_container_width=True)
+                    st.link_button(f"Connect {TWIN_LABELS['twin_b']['name']}", auth_url, use_container_width=True)
                 else:
                     st.caption("Configure API credentials below first")
         
