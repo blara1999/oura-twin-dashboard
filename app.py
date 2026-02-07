@@ -3517,6 +3517,10 @@ def render_main_content():
                 else:
                     st.caption("Configure API credentials below first")
         
+    with tab_settings:
+        st.markdown("### Dashboard Configuration")
+        saved_creds = load_credentials()
+        
         st.divider()
         
         # Date Range Selection
