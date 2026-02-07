@@ -2235,7 +2235,7 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
             resilience_df['resilience_score'] = resilience_df['level'].map(level_map)
         else:
             resilience_df['resilience_score'] = None
-```python
+        df = df.merge(
             resilience_df[['day', 'resilience_score']],
             on='day',
             how='left'
