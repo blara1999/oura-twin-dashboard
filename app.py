@@ -3507,7 +3507,49 @@ def render_main_content():
         if st.button("Full Training Block (Feb 10 - Mar 4)", use_container_width=True):
             st.session_state.date_range = (date(2026, 2, 10), date(2026, 3, 4))
             st.rerun()
+
+        st.divider()
+
+        # Oura Connection Management
+        st.markdown("### Oura Connections")
+        col_oura_a, col_oura_b = st.columns(2)
+
+        saved_creds = load_credentials()
         
+        with col_oura_a:
+            st.markdown(f"**{TWIN_LABELS['twin_a']['name']} Connection**")
+            if twin_a_connected:
+                st.success("✅ Connected")
+                if st.button(f"Disconnect {TWIN_LABELS['twin_a']['name']}", key="disconnect_oura_a", use_container_width=True):
+                    st.session_state.twin_a_token = None
+                    st.session_state.twin_a_refresh_token = None
+                    remove_twin_tokens('twin_a')
+                    st.rerun()
+            else:
+                st.error("❌ Not Connected")
+                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
+                    auth_url = get_authorization_url('twin_a')
+                    st.link_button(f"Connect {TWIN_LABELS['twin_a']['name']}", auth_url, use_container_width=True)
+                else:
+                    st.caption("Configure API credentials below first")
+
+        with col_oura_b:
+            st.markdown(f"**{TWIN_LABELS['twin_b']['name']} Connection**")
+            if twin_b_connected:
+                st.success("✅ Connected")
+                if st.button(f"Disconnect {TWIN_LABELS['twin_b']['name']}", key="disconnect_oura_b", use_container_width=True):
+                    st.session_state.twin_b_token = None
+                    st.session_state.twin_b_refresh_token = None
+                    remove_twin_tokens('twin_b')
+                    st.rerun()
+            else:
+                st.error("❌ Not Connected")
+                if saved_creds.get('client_id') and saved_creds.get('client_secret'):
+                    auth_url = get_authorization_url('twin_b')
+                    st.link_button(f"Connect {TWIN_LABELS['twin_b']['name']}", auth_url, use_container_width=True)
+                else:
+                    st.caption("Configure API credentials below first")
+
         st.divider()
         
         # API Credentials (only show if not using env vars)
