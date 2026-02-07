@@ -1504,6 +1504,37 @@ def commit_polar_transaction(token: str, user_id: int, transaction_id: str) -> b
     except Exception:
         return False
 
+def save_polar_data(workouts: List[Dict[str, Any]], user_id: int, transaction_id: str) -> bool:
+    """
+    Save fetched Polar data to GCS (if available) or local disk.
+    This ensures we don't lose data if the app crashes after commit.
+    """
+    if not workouts:
+        return True
+        
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"polar_data/{user_id}/{transaction_id}_{timestamp}.json"
+    data_str = json.dumps(workouts, indent=2)
+    
+    try:
+        if GCS_AVAILABLE and 'GCS_BUCKET_NAME' in os.environ:
+            bucket_name = os.environ['GCS_BUCKET_NAME']
+            client = gcs_storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(filename)
+            blob.upload_from_string(data_str, content_type='application/json')
+            return True
+        else:
+            # Fallback to local storage (or ephemeral in Cloud Run)
+            local_path = Path("data") / filename
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(local_path, "w") as f:
+                f.write(data_str)
+            return True
+    except Exception as e:
+        print(f"Failed to save Polar data: {e}")
+        return False
+
 def fetch_polar_exercise_data(token: str, url: str) -> Optional[Dict[str, Any]]:
     """Fetch full exercise data from a specific exercise URL."""
     headers = {
@@ -1562,11 +1593,19 @@ def get_polar_workout_data(twin: str) -> Tuple[List[Dict[str, Any]], Dict[str, A
             if data:
                 workouts.append(data)
         
-        # 4. Commit Transaction
-        # "If you don't commit the transaction, the data remains available for the next fetch"
-        # User requested: "Commit Transaction"
-        commit_success = commit_polar_transaction(token, user_id, transaction_id)
-        debug_info['transaction_commit'] = 'Success' if commit_success else 'Failed'
+        # 4. Save Data (Persistence Check)
+        # CRITICAL: Save before commit to avoid data loss
+        save_success = save_polar_data(workouts, int(user_id), transaction_id)
+        debug_info['data_saved'] = save_success
+        
+        if save_success:
+            # 5. Commit Transaction
+            # "If you don't commit the transaction, the data remains available for the next fetch"
+            commit_success = commit_polar_transaction(token, user_id, transaction_id)
+            debug_info['transaction_commit'] = 'Success' if commit_success else 'Failed'
+        else:
+             debug_info['transaction_commit'] = 'Skipped (Save Failed)'
+             st.error("Failed to save Polar data. Transaction not committed to prevent data loss.")
             
     return workouts, debug_info
 
@@ -2163,9 +2202,6 @@ def process_twin_data(raw_data: Dict[str, Any]) -> pd.DataFrame:
                 return None
             except Exception:
                 return None
-                        return val
-            
-            return None
         
         spo2_df['spo2'] = spo2_df.apply(extract_spo2, axis=1)
         df = df.merge(spo2_df[['day', 'spo2']], on='day', how='left')
